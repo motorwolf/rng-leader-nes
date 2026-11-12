@@ -1,0 +1,179 @@
+<!doctype html>
+<!--
+  play/index.html - runs the ROM in the browser with jsnes, a NES emulator
+  written in JavaScript.
+
+  Run `make serve` from the project root, then open http://localhost:8000/play/
+  (Browsers refuse to load files with fetch() straight from disk, so the page
+  needs a local web server.)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RNG_LEADER (NES)</title>
+<style>
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: #111;
+    color: #bbb;
+    font: 14px/1.5 system-ui, sans-serif;
+    text-align: center;
+  }
+  /* The NES draws 256x240 pixels. Scale up without smoothing, so each NES
+     pixel stays a crisp square instead of a blur. */
+  canvas {
+    width: min(768px, 100%);
+    aspect-ratio: 256 / 240;
+    image-rendering: pixelated;
+    background: #000;
+  }
+  #status { min-height: 1.5em; color: #e88; }
+  kbd {
+    padding: 1px 6px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font: inherit;
+  }
+</style>
+</head>
+<body>
+<canvas id="screen" width="256" height="240"></canvas>
+<p id="status"></p>
+<p>
+  <kbd>Arrows</kbd> D-pad &nbsp;
+  <kbd>Z</kbd>/<kbd>A</kbd> A button &nbsp;
+  <kbd>X</kbd>/<kbd>B</kbd> B button &nbsp;
+  <kbd>Enter</kbd> Start &nbsp;
+  <kbd>Shift</kbd> Select
+</p>
+
+<script src="https://unpkg.com/jsnes@1.2.1/dist/jsnes.min.js"></script>
+<script>
+"use strict";
+
+const ROM_URL = "../build/rng-leader.nes";
+const status = document.getElementById("status");
+
+// --- Video -----------------------------------------------------------------
+// jsnes hands us each finished frame as an array of 256x240 colours, which we
+// copy into the canvas.
+const ctx = document.getElementById("screen").getContext("2d");
+const image = ctx.getImageData(0, 0, 256, 240);
+const pixels = new Uint32Array(image.data.buffer);
+
+const nes = new jsnes.NES({
+  onFrame(frame) {
+    for (let i = 0; i < frame.length; i++) {
+      pixels[i] = 0xff000000 | frame[i];   // add full opacity to each colour
+    }
+    ctx.putImageData(image, 0, 0);
+  },
+});
+
+// --- Controller ----------------------------------------------------------
+// Keys are matched by the character typed (e.key), not the physical key
+// position (e.code), so the controls follow any keyboard layout: QWERTY,
+// Dvorak, AZERTY and so on.
+const B = jsnes.Controller;
+const KEYS = {
+  arrowup: B.BUTTON_UP, arrowdown: B.BUTTON_DOWN,
+  arrowleft: B.BUTTON_LEFT, arrowright: B.BUTTON_RIGHT,
+  z: B.BUTTON_A, a: B.BUTTON_A,
+  x: B.BUTTON_B, b: B.BUTTON_B,
+  enter: B.BUTTON_START, shift: B.BUTTON_SELECT,
+};
+
+// The game only reads the controller once per frame. A tap shorter than a
+// frame (1/60 s) could go down and up between two reads and be missed. So a
+// button released before the game has seen it stays pressed until the end of
+// the next frame.
+const held = new Set();         // buttons physically held right now
+const seen = new Set();         // held buttons the game has had a frame to see
+const releaseLater = new Set(); // released too quickly; let go after next frame
+
+function buttonFor(event) {
+  return KEYS[event.key.toLowerCase()];
+}
+
+addEventListener("keydown", (event) => {
+  const button = buttonFor(event);
+  if (button === undefined) return;
+  event.preventDefault();          // stop arrows from scrolling the page
+  if (held.has(button)) return;    // ignore the keyboard's auto-repeat
+  held.add(button);
+  seen.delete(button);
+  releaseLater.delete(button);
+  nes.buttonDown(1, button);
+});
+
+addEventListener("keyup", (event) => {
+  const button = buttonFor(event);
+  if (button === undefined) return;
+  held.delete(button);
+  if (seen.has(button)) nes.buttonUp(1, button);
+  else releaseLater.add(button);
+});
+
+// Switching windows mid-press would otherwise leave a button stuck down.
+addEventListener("blur", () => {
+  for (const button of held) nes.buttonUp(1, button);
+  held.clear();
+});
+
+// --- Timing ----------------------------------------------------------------
+// The real NES runs at about 60.1 frames per second. The browser repaints at
+// the monitor's rate, which may be 60, 120 or 144 Hz, so we can't simply run
+// one NES frame per repaint. Instead we keep a running total of elapsed time
+// and run however many whole NES frames fit into it: a fixed tick, the same
+// idea as the game's own frame loop.
+const FRAME_MS = 1000 / 60.0988;
+let previous = null;
+let owed = 0;   // milliseconds of NES time not yet emulated
+
+function runOneFrame() {
+  nes.frame();
+  for (const button of held) seen.add(button);
+  for (const button of releaseLater) nes.buttonUp(1, button);
+  releaseLater.clear();
+}
+
+function tick(now) {
+  if (previous !== null) {
+    // Cap the catch-up after the tab has been in the background, so the game
+    // doesn't fast-forward through seconds of missed frames.
+    owed += Math.min(now - previous, 100);
+    while (owed >= FRAME_MS) {
+      runOneFrame();
+      owed -= FRAME_MS;
+    }
+  }
+  previous = now;
+  requestAnimationFrame(tick);
+}
+
+// --- Load the ROM ----------------------------------------------------------
+// jsnes expects the ROM as a "binary string": one character per byte.
+async function start() {
+  // The query string stops the browser reusing an old cached copy after a rebuild.
+  const response = await fetch(`${ROM_URL}?t=${Date.now()}`);
+  if (!response.ok) {
+    status.textContent = "Couldn't load the ROM. Run `make` first, then reload.";
+    return;
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let rom = "";
+  for (const byte of bytes) rom += String.fromCharCode(byte);
+  nes.loadROM(rom);
+  requestAnimationFrame(tick);
+}
+
+start().catch((error) => {
+  status.textContent = `Couldn't start the emulator: ${error.message}`;
+});
+
+window.nes = nes;   // handy for poking at the emulator from the browser console
+</script>
+</body>
+</html>

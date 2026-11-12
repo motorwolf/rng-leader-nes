@@ -82,9 +82,15 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD)
 
-# "all" and "clean" are names of jobs, not files, so tell make not to look
-# for files with those names.
-.PHONY: all clean
+# Build, then serve the project folder so the browser player can load the ROM.
+# Open http://localhost:8000/play/ and press Ctrl+C here to stop.
+serve: all
+	@echo "Open http://localhost:8000/play/  (Ctrl+C to stop)"
+	python3 -m http.server 8000
+
+# "all", "clean" and "serve" are names of jobs, not files, so tell make not to
+# look for files with those names.
+.PHONY: all clean serve
 
 # Keep the intermediate build/*.s files instead of auto-deleting them, so you
 # can read the assembly the compiler generated from your C.
