@@ -28,7 +28,7 @@ BUILD := build
 ROM   := $(BUILD)/$(NAME).nes
 
 # The source files. Adding a new .c or .s file to src/ means adding its name here.
-C_SOURCES   := main mmc1
+C_SOURCES   := main mmc1 ppu
 ASM_SOURCES := header startup reset_stubs
 
 # Every source file becomes one object file in build/.
@@ -71,9 +71,11 @@ $(BUILD)/%.o: $(BUILD)/%.s
 $(BUILD)/%.o: src/%.s | $(BUILD)
 	ca65 -t nes $< -o $@
 
-# Header dependencies: these C files #include mmc1.h, so if the header (the
-# "menu") changes, they must be recompiled even though their own .c is unchanged.
-$(BUILD)/main.s $(BUILD)/mmc1.s: src/mmc1.h
+# Header dependencies: if a header (the "menu") changes, every C file that
+# includes it must be recompiled, even though its own .c is unchanged.
+$(BUILD)/main.s: src/mmc1.h src/ppu.h
+$(BUILD)/mmc1.s: src/mmc1.h
+$(BUILD)/ppu.s:  src/ppu.h
 
 $(BUILD):
 	mkdir -p $(BUILD)
