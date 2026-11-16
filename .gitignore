@@ -1,2 +1,5 @@
 # Everything make produces; rebuilt from source with `make`.
 build/
+
+# Python virtual environment for the build tools; see the README.
+.venv/
