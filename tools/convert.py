@@ -224,9 +224,10 @@ def pack_palettes(pieces, max_palettes=3, size=3):
     return palettes, choice
 
 
-def convert_sprite(pixels):
+def convert_sprite(pixels, max_palettes=3):
     """Convert one object (rows of NES colour numbers, None = transparent)
-    into 8x8 sprite tiles. Returns (palettes, choice, tiles)."""
+    into 8x8 sprite tiles using up to max_palettes palettes.
+    Returns (palettes, choice, tiles)."""
     height, width = len(pixels), len(pixels[0])
     corners = [(tx, ty) for ty in range(0, height, 8) for tx in range(0, width, 8)]
 
@@ -244,7 +245,7 @@ def convert_sprite(pixels):
                     pixels[y][x] = merged[pixels[y][x]]
 
     # Stage 2: share out the palettes.
-    palettes, choice = pack_palettes(pieces)
+    palettes, choice = pack_palettes(pieces, max_palettes)
 
     # Encode: transparent is slot 0, palette colours are slots 1-3.
     tiles = []
@@ -258,11 +259,18 @@ def convert_sprite(pixels):
     return palettes, choice, tiles
 
 
-def load_sprite_sheet(path, scale):
-    """Shrink a sheet to true size and map it to NES colours, keeping
-    transparency (None). Returns rows of colour numbers."""
+def load_sprite_sheet(path, true_size):
+    """Shrink a sheet to its true size, (width, height) in art pixels, and
+    map it to NES colours, keeping transparency (None). Returns rows of
+    colour numbers.
+
+    NEAREST takes the pixel at the centre of each block. For a clean
+    whole-number scale any pixel in the block would do; for players.png,
+    which was resized with smoothing (about 11.97x), the centre matters:
+    the blur sits at the block edges, and the centres still hold the
+    original colours exactly."""
     image = Image.open(path).convert("RGBA")
-    image = image.resize((image.width // scale, image.height // scale), Image.NEAREST)
+    image = image.resize(true_size, Image.NEAREST)
     cache = {}
     rows = []
     for y in range(image.height):
@@ -354,7 +362,7 @@ if __name__ == "__main__":
     print("preview: build/preview_grass.png (original left, NES right)")
 
     # enemies.png: fifteen 32x32 enemies in a row, at block size 20.
-    sheet, rows = load_sprite_sheet("art/enemies.png", scale=20)
+    sheet, rows = load_sprite_sheet("art/enemies.png", (480, 32))
     backdrop = (220, 220, 220)               # stands in for the battle backdrop
     out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
     out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, backdrop + (255,)), sheet), (0, 0))
@@ -370,3 +378,25 @@ if __name__ == "__main__":
               + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
     out.resize((out.width * 4, out.height * 4), Image.NEAREST).save("build/preview_enemies.png")
     print("preview: build/preview_enemies.png (originals on top, NES below)")
+
+    # players.png: five 32x32 characters, resized with smoothing; the true
+    # grid (160 x 32) was found by checking which grid puts every sample
+    # point clear of the blurred edges. Players move, so the outline trick
+    # can't follow them: black stays in the sprite palettes. On the
+    # overworld no enemy is on screen, so a player may use all 4 palettes.
+    sheet, rows = load_sprite_sheet("art/players.png", (160, 32))
+    out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
+    out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, backdrop + (255,)), sheet), (0, 0))
+    print("\nplayers:  colours before -> after, sprite palettes")
+    for e in range(5):
+        pixels = [row[e * 32:e * 32 + 32] for row in rows]
+        before = len({c for row in pixels for c in row if c is not None})
+        palettes, choice, tiles = convert_sprite(pixels, max_palettes=4)
+        no_mask = [[False] * 32 for _ in range(32)]
+        image = render_enemy(no_mask, palettes, choice, tiles, backdrop)
+        out.paste(image, (e * 32, 36))
+        after = len(set(image.get_flattened_data()) - {backdrop})
+        print(f"  {e:2}: {before:2} -> {after}   "
+              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
+    out.resize((out.width * 4, out.height * 4), Image.NEAREST).save("build/preview_players.png")
+    print("preview: build/preview_players.png (originals on top, NES below)")
