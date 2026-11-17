@@ -21,10 +21,12 @@ a machine that has none of those things.
 
 Written in C with the [cc65](https://cc65.github.io/) toolchain.
 
-Requirements: cc65 (tested with 2.18), make, and Python 3 for the local server.
+Requirements: cc65 (tested with 2.18), make, and Python 3, which converts the art
+at build time and runs the local server.
 
 ```bash
 brew install cc65     # macOS; on Debian/Ubuntu: apt install cc65
+python3 -m venv .venv && .venv/bin/pip install -r tools/requirements.txt   # once
 make                  # builds build/rng-leader.nes
 make serve            # then open http://localhost:8000/play/
 ```
@@ -46,3 +48,6 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/ppu.c` | sending tiles, maps and palettes to the graphics chip |
 | `src/main.c` | the game |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
+| `art/` | the original PNGs |
+| `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |
+| `tools/measure_scale.py` | finds the pixel scale of enlarged pixel art |

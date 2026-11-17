@@ -16,10 +16,12 @@
 #   src/mmc1.c ──cc65──► build/mmc1.s ──ca65──► build/mmc1.o ─┤
 #   src/startup.s ─────────────ca65──► build/startup.o ───────┼─ld65─► build/rng-leader.nes
 #   src/reset_stubs.s ─────────ca65──► build/reset_stubs.o ───┤   (laid out by mmc1.cfg)
-#   src/header.s ──────────────ca65──► build/header.o ────────┘
+#   src/header.s ──────────────ca65──► build/header.o ────────┤
+#   art/*.png ─convert.py─► build/art.c ─cc65─► ... build/art.o ┘
 #
 # cc65 compiles C into 6502 assembly, ca65 assembles that into machine code
 # (object files, .o), and ld65 links the objects into the final ROM.
+# convert.py turns the art into C arrays first (see tools/convert.py).
 
 # --- Settings -------------------------------------------------------------
 
@@ -31,8 +33,12 @@ ROM   := $(BUILD)/$(NAME).nes
 C_SOURCES   := main mmc1 ppu
 ASM_SOURCES := header startup reset_stubs
 
-# Every source file becomes one object file in build/.
-OBJECTS := $(addprefix $(BUILD)/, $(addsuffix .o, $(ASM_SOURCES) $(C_SOURCES)))
+# Every source file becomes one object file in build/, plus the generated art.
+OBJECTS := $(addprefix $(BUILD)/, $(addsuffix .o, $(ASM_SOURCES) $(C_SOURCES) art))
+
+# The Python that has Pillow installed (see the README).
+PYTHON := .venv/bin/python
+ART    := $(wildcard art/*.png)
 
 # cc65 options:
 #   -t nes  target the NES (selects the right runtime library and settings)
@@ -70,6 +76,17 @@ $(BUILD)/%.o: $(BUILD)/%.s
 # Assemble: hand-written assembly (in src/) to machine code.
 $(BUILD)/%.o: src/%.s | $(BUILD)
 	ca65 -t nes $< -o $@
+
+# Generate the art. One run writes both art.c and art.h; make 3.81 (the
+# version macOS ships) can't say "one command, two outputs", so art.c is the
+# real target and art.h simply comes along with it.
+$(BUILD)/art.c: tools/convert.py $(ART) | $(BUILD)
+	$(PYTHON) tools/convert.py
+$(BUILD)/art.h: $(BUILD)/art.c
+
+# Compile the generated art (it lives in build/, not src/).
+$(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
+	cc65 $(CFLAGS) $< -o $@
 
 # Header dependencies: if a header (the "menu") changes, every C file that
 # includes it must be recompiled, even though its own .c is unchanged.
