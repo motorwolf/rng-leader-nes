@@ -1,18 +1,20 @@
 """convert.py - turn the original PNG art into NES tile data.
 
 Runs on the development machine at build time, never on the NES. For now it
-converts one image (the grass square from terrain.png) and prints the
-result; later chunks extend it to all the art and write a file the build
-links into the ROM.
+converts the art and saves before/after previews in build/; a later chunk
+writes a file the build links into the ROM.
 
 The steps for one image:
   1. Shrink it back to its true size (one pixel per block; see measure_scale.py).
   2. Replace each colour with the closest colour the NES can show.
-  3. Number the colours 0-3: their slots in a 4-colour NES palette.
+  3. Reduce the colours to fit the NES palette rules, which differ for
+     sprites (per 8x8 tile, with transparency) and backgrounds (per 16x16
+     area, with one colour shared by the whole screen).
   4. Cut the image into 8x8 tiles and encode each as 16 bytes, in the same
      two-plane format as the hand-made tiles in src/main.c.
 """
 
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -51,28 +53,73 @@ def rgb(number):
     return (number >> 16, (number >> 8) & 0xFF, number & 0xFF)
 
 
+def oklab(colour):
+    """Convert an (r, g, b) colour to OKLab, a "perceptual" colour space
+    (Bjorn Ottosson, 2020). RGB describes how much each light a screen
+    emits; it's a poor measure of how different two colours look, because
+    eyes don't respond to the three lights equally or in proportion. In
+    OKLab, the same distance means roughly the same visible difference
+    anywhere: L is lightness, a runs green to red, b runs blue to yellow."""
+    # sRGB values are gamma-encoded; undo that to get actual light amounts.
+    r, g, b = (((c / 255 + 0.055) / 1.055) ** 2.4 if c > 10 else c / 255 / 12.92
+               for c in colour)
+    # Roughly the responses of the eye's three kinds of cone cell...
+    l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+    m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+    s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+    # ...compressed (we notice changes in dim colours more than bright ones)
+    l, m, s = l ** (1 / 3), m ** (1 / 3), s ** (1 / 3)
+    # ...and recombined into lightness and two colour axes.
+    return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+
+
+_oklab_cache = {}
+
+# Which way of measuring colour difference to use: "oklab" or "rgb". Set per
+# image with use_method(). Neither is right for everything: the NES palette
+# has almost no muted colours, so a muted colour is matched either by
+# lightness (OKLab: often too saturated) or by plain RGB (often the right hue
+# but too light). The choice per image was made by eye, comparing previews.
+method = "oklab"
+
+
+def use_method(name):
+    """Switch the colour-difference measure for everything that follows."""
+    global method
+    method = name
+
+
 def distance(a, b):
-    """How different two colours look. Plain RGB distance, but weighted:
-    eyes are most sensitive to green and least to blue, so a difference
-    in green counts for more. (A rough stand-in for proper colour science.)"""
-    dr, dg, db = a[0] - b[0], a[1] - b[1], a[2] - b[2]
-    return 2 * dr * dr + 4 * dg * dg + 3 * db * db
+    """How different two (r, g, b) colours look, by the current method."""
+    if method == "rgb":
+        # Plain RGB distance, weighted: eyes are most sensitive to green and
+        # least to blue, so a difference in green counts for more.
+        dr, dg, db = a[0] - b[0], a[1] - b[1], a[2] - b[2]
+        return 2 * dr * dr + 4 * dg * dg + 3 * db * db
+    # OKLab: the squared distance between the two colours in OKLab.
+    for c in (a, b):
+        if c not in _oklab_cache:
+            _oklab_cache[c] = oklab(c)
+    pa, pb = _oklab_cache[a], _oklab_cache[b]
+    return sum((x - y) ** 2 for x, y in zip(pa, pb))
 
 
 def closest_nes(colour):
-    """The NES colour number that looks most like an (r, g, b) colour."""
+    """The NES colour number that looks most like an (r, g, b) colour.
+
+    One exception: near-blacks become black ($0F). The NES's darkest
+    colours are much brighter than the near-black that pixel artists use
+    for outlines (#181425 here), so by distance alone an outline would turn
+    dark teal. Anything darker than this lightness is meant as black.
+    (Only needed with OKLab; weighted RGB already picks black for these.)"""
+    if method == "oklab" and oklab(colour)[0] < 0.25:
+        return 0x0F
     return min(USABLE, key=lambda n: distance(colour, rgb(NES_RGB[n])))
 
 
-# --- Steps 1-4 ---------------------------------------------------------------
-
-def load_true_size(path, scale, box):
-    """Step 1: crop one region (in on-disk pixels) and shrink it by the
-    block size. NEAREST takes one pixel per block instead of blending, so
-    no new colours are invented."""
-    region = Image.open(path).convert("RGB").crop(box)
-    return region.resize((region.width // scale, region.height // scale), Image.NEAREST)
-
+# --- Encoding ------------------------------------------------------------------
 
 def encode_tile(indices):
     """Step 4: encode an 8x8 tile (8 rows of 8 colour slots, 0-3) as 16
@@ -87,37 +134,6 @@ def encode_tile(indices):
         plane0.append(low)
         plane1.append(high)
     return plane0 + plane1
-
-
-def convert(image):
-    """Steps 2-4 for a whole image. Returns (palette, tiles): up to 4 NES
-    colour numbers, and the tiles left to right, top to bottom."""
-    pixels = [[image.getpixel((x, y)) for x in range(image.width)]
-              for y in range(image.height)]
-
-    # Step 2: map every original colour to its closest NES colour.
-    to_nes = {c: closest_nes(c) for row in pixels for c in row}
-
-    # Step 3: give each NES colour a palette slot. The most common one goes
-    # in slot 0, which on the NES is the shared background colour.
-    counts = Counter(to_nes[c] for row in pixels for c in row)
-    palette = [n for n, _ in counts.most_common()]
-    if len(palette) > 4:
-        raise ValueError(f"{len(palette)} colours; reducing to 4 comes in the next step")
-    slot = {n: i for i, n in enumerate(palette)}
-
-    for original, n in to_nes.items():
-        print(f"  #{original[0]:02x}{original[1]:02x}{original[2]:02x}  ->  "
-              f"NES ${n:02X} (#{NES_RGB[n]:06x})  slot {slot[n]}")
-
-    # Step 4: cut into 8x8 tiles and encode each.
-    tiles = []
-    for ty in range(0, image.height, 8):
-        for tx in range(0, image.width, 8):
-            indices = [[slot[to_nes[pixels[y][x]]] for x in range(tx, tx + 8)]
-                       for y in range(ty, ty + 8)]
-            tiles.append(encode_tile(indices))
-    return palette, tiles
 
 
 def decode_tile(tile):
@@ -176,14 +192,12 @@ def fit_cost(counts, palette):
     return sum(n * colour_gap(c, closest_in(c, palette)) for c, n in counts.items())
 
 
-def pack_palettes(pieces, max_palettes=3, size=3):
-    """pieces: one Counter of colours per 8x8 piece. Returns (palettes,
-    choice): the palettes as lists of colour numbers, and which palette
-    each piece uses. Pieces with the most colours are placed first, since
-    they're the hardest to fit."""
+def pack_once(pieces, order, max_palettes, size):
+    """One attempt at packing: a greedy first guess, placing pieces in the
+    given order, then refined. Returns (palettes, choice)."""
     palettes = []
     choice = [0] * len(pieces)
-    for i in sorted(range(len(pieces)), key=lambda i: -len(pieces[i])):
+    for i in order:
         colours = set(pieces[i])
         if not colours:
             continue                     # fully transparent: any palette works
@@ -206,7 +220,6 @@ def pack_palettes(pieces, max_palettes=3, size=3):
     # repeat two moves until nothing changes:
     #   a. rebuild each palette from the pieces that chose it;
     #   b. let every piece choose again, whichever palette now suits it best.
-    # Each round can only lower the total error, so it settles.
     for _ in range(20):
         for k in range(len(palettes)):
             members = Counter()
@@ -224,6 +237,54 @@ def pack_palettes(pieces, max_palettes=3, size=3):
     return palettes, choice
 
 
+def total_error(pieces, palettes, choice):
+    """How much the whole picture changes with this packing."""
+    return sum(fit_cost(piece, palettes[k]) for piece, k in zip(pieces, choice) if piece)
+
+
+def pack_palettes(pieces, max_palettes=3, size=3, restarts=30):
+    """pieces: one Counter of colours per piece. Returns (palettes, choice):
+    the palettes as lists of colour numbers, and which palette each piece
+    uses.
+
+    k-means only finds the best answer near where it starts; a different
+    first guess can settle somewhere better. So it runs several times: once
+    with the hardest pieces (most colours) placed first, then with shuffled
+    orders, and keeps the packing with the least total error ("random
+    restarts"). The shuffles use a fixed seed, so every build gives the
+    same result."""
+    hardest_first = sorted(range(len(pieces)), key=lambda i: -len(pieces[i]))
+    shuffler = random.Random(0)
+    orders = [hardest_first]
+    for _ in range(restarts):
+        order = hardest_first[:]
+        shuffler.shuffle(order)
+        orders.append(order)
+
+    attempts = [pack_once(pieces, order, max_palettes, size) for order in orders]
+    return min(attempts, key=lambda a: total_error(pieces, *a))
+
+
+def merge_regions(pixels, corners, size, ignore):
+    """Stage 1, for sprites and backgrounds alike: in each size x size
+    region (given by its top-left corner), merge colours until at most 3
+    remain. Pixels equal to `ignore` (transparent, or the shared background
+    colour) don't count. Changes pixels in place and returns one Counter of
+    colours per region."""
+    pieces = []
+    for rx, ry in corners:
+        counts = Counter(pixels[y][x] for y in range(ry, ry + size)
+                         for x in range(rx, rx + size) if pixels[y][x] != ignore)
+        merged = merge_colours(counts, 3)
+        pieces.append(Counter({c: 0 for c in merged.values()}) +
+                      Counter(merged[c] for c in counts.elements()))
+        for y in range(ry, ry + size):
+            for x in range(rx, rx + size):
+                if pixels[y][x] != ignore:
+                    pixels[y][x] = merged[pixels[y][x]]
+    return pieces
+
+
 def convert_sprite(pixels, max_palettes=3):
     """Convert one object (rows of NES colour numbers, None = transparent)
     into 8x8 sprite tiles using up to max_palettes palettes.
@@ -232,17 +293,7 @@ def convert_sprite(pixels, max_palettes=3):
     corners = [(tx, ty) for ty in range(0, height, 8) for tx in range(0, width, 8)]
 
     # Stage 1: at most 3 colours in each piece.
-    pieces = []
-    for tx, ty in corners:
-        counts = Counter(pixels[y][x] for y in range(ty, ty + 8)
-                         for x in range(tx, tx + 8) if pixels[y][x] is not None)
-        merged = merge_colours(counts, 3)
-        pieces.append(Counter({c: 0 for c in merged.values()}) +
-                      Counter(merged[c] for c in counts.elements()))
-        for y in range(ty, ty + 8):
-            for x in range(tx, tx + 8):
-                if pixels[y][x] is not None:
-                    pixels[y][x] = merged[pixels[y][x]]
+    pieces = merge_regions(pixels, corners, 8, ignore=None)
 
     # Stage 2: share out the palettes.
     palettes, choice = pack_palettes(pieces, max_palettes)
@@ -329,39 +380,84 @@ def render_enemy(mask, palettes, choice, tiles, backdrop):
     return image
 
 
-def preview(original, palette, tiles, columns, path, zoom=8):
-    """Save the original and the NES version side by side, enlarged."""
-    nes = Image.new("RGB", original.size)
+# --- Backgrounds: palettes per 16x16 area -----------------------------------
+#
+# Background tiles differ from sprites in two ways:
+#   - They can't be see-through. Slot 0 of every background palette is one
+#     colour shared by the whole screen, so each palette has 3 of its own.
+#   - Palettes are chosen per 16x16 area (the attribute table), not per tile.
+# So the same two stages run on 16x16 areas, with the shared colour left out.
+
+def convert_background(pixels, shared, max_palettes=4):
+    """pixels: rows of NES colour numbers; None (transparent) becomes the
+    shared colour. Returns (palettes, choice, tiles): palettes of up to 3
+    colours (slots 1-3), the palette for each 16x16 area, and the 8x8 tiles,
+    each list running left to right, top to bottom."""
+    height, width = len(pixels), len(pixels[0])
+    pixels = [[shared if c is None else c for c in row] for row in pixels]
+    areas = [(ax, ay) for ay in range(0, height, 16) for ax in range(0, width, 16)]
+
+    pieces = merge_regions(pixels, areas, 16, ignore=shared)
+    palettes, choice = pack_palettes(pieces, max_palettes)
+
+    tiles = []
+    for ty in range(0, height, 8):
+        for tx in range(0, width, 8):
+            palette = palettes[choice[areas.index((tx - tx % 16, ty - ty % 16))]]
+            indices = [[0 if pixels[y][x] == shared
+                        else 1 + palette.index(closest_in(pixels[y][x], palette))
+                        for x in range(tx, tx + 8)]
+                       for y in range(ty, ty + 8)]
+            tiles.append(encode_tile(indices))
+    return palettes, choice, tiles
+
+
+def render_background(width, height, shared, palettes, choice, tiles):
+    """Draw what the NES would show for a converted background."""
+    image = Image.new("RGB", (width, height))
+    per_row = width // 16
     for i, tile in enumerate(tiles):
-        ox, oy = (i % columns) * 8, (i // columns) * 8
+        tx, ty = (i % (width // 8)) * 8, (i // (width // 8)) * 8
+        palette = [shared] + palettes[choice[(ty // 16) * per_row + tx // 16]]
         for y, row in enumerate(decode_tile(tile)):
             for x, slot in enumerate(row):
-                nes.putpixel((ox + x, oy + y), rgb(NES_RGB[palette[slot]]))
+                image.putpixel((tx + x, ty + y), rgb(NES_RGB[palette[slot]]))
+    return image
 
-    gap = 2
-    both = Image.new("RGB", (original.width * 2 + gap, original.height), (255, 255, 255))
-    both.paste(original, (0, 0))
-    both.paste(nes, (original.width + gap, 0))
-    both = both.resize((both.width * zoom, both.height * zoom), Image.NEAREST)
-    path.parent.mkdir(exist_ok=True)
-    both.save(path)
+
+def most_common(rows):
+    """The most used colour in an image, ignoring transparency."""
+    return Counter(c for row in rows for c in row if c is not None).most_common(1)[0][0]
+
+
+def save_comparison(sheet, converted, behind, path):
+    """Original on top, NES version below, enlarged 4x."""
+    out = Image.new("RGB", (sheet.width, sheet.height * 2 + 4), (255, 255, 255))
+    out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, behind + (255,)), sheet), (0, 0))
+    out.paste(converted, (0, sheet.height + 4))
+    out.resize((out.width * 4, out.height * 4), Image.NEAREST).save(path)
 
 
 if __name__ == "__main__":
-    # terrain.png: four 64x64 squares at block size 2. Grass is the first.
-    grass = load_true_size("art/terrain.png", scale=2, box=(0, 0, 64, 64))
-    print(f"grass: {grass.width} x {grass.height} pixels")
+    Path("build").mkdir(exist_ok=True)
 
-    palette, tiles = convert(grass)
-    print(f"palette: {', '.join(f'${n:02X}' for n in palette)}")
-    print(f"{len(tiles)} tiles:")
-    for i, tile in enumerate(tiles):
-        print(f"  {i:2}: " + ", ".join(f"0x{b:02X}" for b in tile))
-
-    preview(grass, palette, tiles, grass.width // 8, Path("build/preview_grass.png"))
-    print("preview: build/preview_grass.png (original left, NES right)")
+    # Backgrounds: the overworld terrain and the battle backdrop. Each is its
+    # own screen, so each gets its own 4 background palettes and shared colour.
+    for name, true_size, colours in (("terrain", (128, 32), "oklab"),
+                                     ("background", (64, 64), "rgb")):
+        use_method(colours)
+        sheet, rows = load_sprite_sheet(f"art/{name}.png", true_size)
+        shared = most_common(rows)
+        palettes, choice, tiles = convert_background(rows, shared)
+        image = render_background(sheet.width, sheet.height, shared, palettes, choice, tiles)
+        print(f"{name}: {len(tiles)} tiles, shared colour ${shared:02X}, palettes: "
+              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
+        print(f"  palette per 16x16 area: {choice}")
+        save_comparison(sheet, image, rgb(NES_RGB[shared]), f"build/preview_{name}.png")
+        print(f"preview: build/preview_{name}.png (original on top, NES below)\n")
 
     # enemies.png: fifteen 32x32 enemies in a row, at block size 20.
+    use_method("rgb")
     sheet, rows = load_sprite_sheet("art/enemies.png", (480, 32))
     backdrop = (220, 220, 220)               # stands in for the battle backdrop
     out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
@@ -384,6 +480,7 @@ if __name__ == "__main__":
     # point clear of the blurred edges. Players move, so the outline trick
     # can't follow them: black stays in the sprite palettes. On the
     # overworld no enemy is on screen, so a player may use all 4 palettes.
+    use_method("oklab")
     sheet, rows = load_sprite_sheet("art/players.png", (160, 32))
     out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
     out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, backdrop + (255,)), sheet), (0, 0))
