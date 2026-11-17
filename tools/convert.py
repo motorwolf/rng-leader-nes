@@ -120,15 +120,214 @@ def convert(image):
     return palette, tiles
 
 
+def decode_tile(tile):
+    """The reverse of encode_tile: 16 bytes back to 8 rows of 8 slots. Used
+    for previews, so they show what the NES will actually see."""
+    return [[((tile[y] >> (7 - x)) & 1) | (((tile[8 + y] >> (7 - x)) & 1) << 1)
+             for x in range(8)]
+            for y in range(8)]
+
+
+# --- Sprites: up to 3 palettes per object ------------------------------------
+#
+# Enemies are drawn as sprites (see PLAN.md). Each 8x8 sprite picks one of
+# the 4 sprite palettes, and each palette is 3 colours plus transparent
+# (slot 0). An enemy may use 3 of the palettes; the 4th is kept for the
+# player. So an enemy can have up to 9 colours, but any one 8x8 piece only 3.
+#
+# Two stages:
+#   1. Within each 8x8 piece, merge colours until it has at most 3.
+#   2. Pack the pieces' colour sets into at most 3 palettes. A piece that
+#      fits no palette is drawn with the closest colours of the best one.
+
+def colour_gap(a, b):
+    """distance() between two NES colour numbers."""
+    return distance(rgb(NES_RGB[a]), rgb(NES_RGB[b]))
+
+
+def merge_colours(counts, limit):
+    """Greedy merging. counts maps colour -> number of pixels. While there
+    are more than `limit` colours, find the pair whose merge changes the
+    picture least (how different they are x how many pixels would change)
+    and replace the less-used colour with the other. No new colours are
+    invented; the survivors are all original colours.
+    Returns a dict: each original colour -> the colour that replaces it."""
+    counts = dict(counts)
+    replaced_by = {c: c for c in counts}
+    while len(counts) > limit:
+        pairs = [(a, b) for a in counts for b in counts if a < b]
+        a, b = min(pairs, key=lambda p: colour_gap(*p) * min(counts[p[0]], counts[p[1]]))
+        keep, drop = (a, b) if counts[a] >= counts[b] else (b, a)
+        counts[keep] += counts.pop(drop)
+        for original, now in replaced_by.items():
+            if now == drop:
+                replaced_by[original] = keep
+    return replaced_by
+
+
+def closest_in(colour, palette):
+    """The colour in palette that looks most like colour."""
+    return min(palette, key=lambda p: colour_gap(colour, p))
+
+
+def fit_cost(counts, palette):
+    """How much a piece changes if drawn with this palette: every colour is
+    swapped for the palette's closest, weighted by its number of pixels."""
+    return sum(n * colour_gap(c, closest_in(c, palette)) for c, n in counts.items())
+
+
+def pack_palettes(pieces, max_palettes=3, size=3):
+    """pieces: one Counter of colours per 8x8 piece. Returns (palettes,
+    choice): the palettes as lists of colour numbers, and which palette
+    each piece uses. Pieces with the most colours are placed first, since
+    they're the hardest to fit."""
+    palettes = []
+    choice = [0] * len(pieces)
+    for i in sorted(range(len(pieces)), key=lambda i: -len(pieces[i])):
+        colours = set(pieces[i])
+        if not colours:
+            continue                     # fully transparent: any palette works
+        # Palettes this piece fits into, counting how many colours each would gain.
+        room = [(len(colours - set(p)), k) for k, p in enumerate(palettes)
+                if len(set(p) | colours) <= size]
+        if room:
+            _, k = min(room)             # the one that has to grow least
+            palettes[k] += sorted(colours - set(palettes[k]))
+        elif len(palettes) < max_palettes:
+            k = len(palettes)
+            palettes.append(sorted(colours))
+        else:
+            k = min(range(len(palettes)), key=lambda k: fit_cost(pieces[i], palettes[k]))
+        choice[i] = k
+    if not palettes:
+        return [[]], choice
+
+    # Refine (the k-means idea): the greedy pass above is a first guess. Now
+    # repeat two moves until nothing changes:
+    #   a. rebuild each palette from the pieces that chose it;
+    #   b. let every piece choose again, whichever palette now suits it best.
+    # Each round can only lower the total error, so it settles.
+    for _ in range(20):
+        for k in range(len(palettes)):
+            members = Counter()
+            for i, piece in enumerate(pieces):
+                if choice[i] == k:
+                    members += piece
+            if members:
+                palettes[k] = sorted(set(merge_colours(members, size).values()))
+        new_choice = [min(range(len(palettes)), key=lambda k: fit_cost(piece, palettes[k]))
+                      if piece else 0
+                      for piece in pieces]
+        if new_choice == choice:
+            break
+        choice = new_choice
+    return palettes, choice
+
+
+def convert_sprite(pixels):
+    """Convert one object (rows of NES colour numbers, None = transparent)
+    into 8x8 sprite tiles. Returns (palettes, choice, tiles)."""
+    height, width = len(pixels), len(pixels[0])
+    corners = [(tx, ty) for ty in range(0, height, 8) for tx in range(0, width, 8)]
+
+    # Stage 1: at most 3 colours in each piece.
+    pieces = []
+    for tx, ty in corners:
+        counts = Counter(pixels[y][x] for y in range(ty, ty + 8)
+                         for x in range(tx, tx + 8) if pixels[y][x] is not None)
+        merged = merge_colours(counts, 3)
+        pieces.append(Counter({c: 0 for c in merged.values()}) +
+                      Counter(merged[c] for c in counts.elements()))
+        for y in range(ty, ty + 8):
+            for x in range(tx, tx + 8):
+                if pixels[y][x] is not None:
+                    pixels[y][x] = merged[pixels[y][x]]
+
+    # Stage 2: share out the palettes.
+    palettes, choice = pack_palettes(pieces)
+
+    # Encode: transparent is slot 0, palette colours are slots 1-3.
+    tiles = []
+    for (tx, ty), k in zip(corners, choice):
+        palette = palettes[k]
+        indices = [[0 if pixels[y][x] is None
+                    else 1 + palette.index(closest_in(pixels[y][x], palette))
+                    for x in range(tx, tx + 8)]
+                   for y in range(ty, ty + 8)]
+        tiles.append(encode_tile(indices))
+    return palettes, choice, tiles
+
+
+def load_sprite_sheet(path, scale):
+    """Shrink a sheet to true size and map it to NES colours, keeping
+    transparency (None). Returns rows of colour numbers."""
+    image = Image.open(path).convert("RGBA")
+    image = image.resize((image.width // scale, image.height // scale), Image.NEAREST)
+    cache = {}
+    rows = []
+    for y in range(image.height):
+        row = []
+        for x in range(image.width):
+            r, g, b, a = image.getpixel((x, y))
+            if a < 128:
+                row.append(None)
+            else:
+                row.append(cache.setdefault((r, g, b), closest_nes((r, g, b))))
+        rows.append(row)
+    return image, rows
+
+
+# --- Enemies: black on the background, colour on sprites --------------------
+#
+# Almost every 8x8 piece of an enemy contains black (the outlines, eyes and
+# mouth lines), so if black lived in the sprite palettes it would take one of
+# the 3 slots in every palette. Instead, black is drawn on the background
+# layer, as a silhouette behind the enemy, and the sprite is see-through
+# wherever the original is black. Each sprite palette then holds 3 real
+# colours. The cost is paid in the battle screen (Milestone 4): the
+# background tiles behind the enemy are generated from its silhouette.
+
+BLACK = 0x0F
+
+
+def convert_enemy(pixels):
+    """Split an enemy into a black mask for the background layer and sprite
+    tiles for everything else. Returns (mask, palettes, choice, tiles):
+    mask is rows of True (black) / False, the rest is as convert_sprite."""
+    pixels = [row[:] for row in pixels]
+    mask = [[c == BLACK for c in row] for row in pixels]
+    for y, row in enumerate(pixels):
+        for x, c in enumerate(row):
+            if c == BLACK:
+                row[x] = None            # the sprite is see-through here
+    palettes, choice, tiles = convert_sprite(pixels)
+    return mask, palettes, choice, tiles
+
+
+def render_enemy(mask, palettes, choice, tiles, backdrop):
+    """Draw what the NES would show: backdrop, black silhouette, sprites on top."""
+    width = len(mask[0])
+    image = Image.new("RGB", (width, len(mask)), backdrop)
+    for y, row in enumerate(mask):
+        for x, black in enumerate(row):
+            if black:
+                image.putpixel((x, y), rgb(NES_RGB[BLACK]))
+    for i, tile in enumerate(tiles):
+        ox, oy = (i % (width // 8)) * 8, (i // (width // 8)) * 8
+        for y, row in enumerate(decode_tile(tile)):
+            for x, slot in enumerate(row):
+                if slot:
+                    image.putpixel((ox + x, oy + y), rgb(NES_RGB[palettes[choice[i]][slot - 1]]))
+    return image
+
+
 def preview(original, palette, tiles, columns, path, zoom=8):
     """Save the original and the NES version side by side, enlarged."""
     nes = Image.new("RGB", original.size)
     for i, tile in enumerate(tiles):
         ox, oy = (i % columns) * 8, (i // columns) * 8
-        for y in range(8):
-            for x in range(8):
-                bit = 7 - x
-                slot = ((tile[y] >> bit) & 1) | (((tile[8 + y] >> bit) & 1) << 1)
+        for y, row in enumerate(decode_tile(tile)):
+            for x, slot in enumerate(row):
                 nes.putpixel((ox + x, oy + y), rgb(NES_RGB[palette[slot]]))
 
     gap = 2
@@ -153,3 +352,21 @@ if __name__ == "__main__":
 
     preview(grass, palette, tiles, grass.width // 8, Path("build/preview_grass.png"))
     print("preview: build/preview_grass.png (original left, NES right)")
+
+    # enemies.png: fifteen 32x32 enemies in a row, at block size 20.
+    sheet, rows = load_sprite_sheet("art/enemies.png", scale=20)
+    backdrop = (220, 220, 220)               # stands in for the battle backdrop
+    out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
+    out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, backdrop + (255,)), sheet), (0, 0))
+    print("\nenemies:  colours before -> after, sprite palettes")
+    for e in range(15):
+        pixels = [row[e * 32:e * 32 + 32] for row in rows]
+        before = len({c for row in pixels for c in row if c is not None})
+        mask, palettes, choice, tiles = convert_enemy(pixels)
+        image = render_enemy(mask, palettes, choice, tiles, backdrop)
+        out.paste(image, (e * 32, 36))
+        after = len(set(image.get_flattened_data()) - {backdrop})
+        print(f"  {e:2}: {before:2} -> {after}   "
+              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
+    out.resize((out.width * 4, out.height * 4), Image.NEAREST).save("build/preview_enemies.png")
+    print("preview: build/preview_enemies.png (originals on top, NES below)")
