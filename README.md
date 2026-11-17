@@ -14,7 +14,7 @@ system, no database and no network.
 ## Why
 
 To learn how games were made under real hardware limits, and how the decisions of a
-modern web app (a database, floating-point maths, `Math.random()`, a server) translate to
+modern web app (a database, floating-point math, `Math.random()`, a server) translate to
 a machine that has none of those things.
 
 ## Building

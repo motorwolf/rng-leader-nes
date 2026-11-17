@@ -57,7 +57,7 @@ const ROM_URL = "../build/rng-leader.nes";
 const status = document.getElementById("status");
 
 // --- Video -----------------------------------------------------------------
-// jsnes hands us each finished frame as an array of 256x240 colours, which we
+// jsnes hands us each finished frame as an array of 256x240 colors, which we
 // copy into the canvas.
 const ctx = document.getElementById("screen").getContext("2d");
 const image = ctx.getImageData(0, 0, 256, 240);
@@ -66,7 +66,7 @@ const pixels = new Uint32Array(image.data.buffer);
 const nes = new jsnes.NES({
   onFrame(frame) {
     for (let i = 0; i < frame.length; i++) {
-      pixels[i] = 0xff000000 | frame[i];   // add full opacity to each colour
+      pixels[i] = 0xff000000 | frame[i];   // add full opacity to each color
     }
     ctx.putImageData(image, 0, 0);
   },

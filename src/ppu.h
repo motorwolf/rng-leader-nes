@@ -16,7 +16,7 @@
 #define PPU_TILES      0x0000   /* tile pictures: our 8 KB of graphics RAM */
 #define PPU_NAMETABLE0 0x2000   /* the first screen-sized map of tile numbers */
 #define PPU_ATTRIBUTES 0x23C0   /* palette choices for that map, per 16x16 pixel block */
-#define PPU_PALETTES   0x3F00   /* 8 palettes of 4 colours: 4 for background, 4 for sprites */
+#define PPU_PALETTES   0x3F00   /* 8 palettes of 4 colors: 4 for background, 4 for sprites */
 
 /* Everything below must only run while drawing is switched off, or inside
  * vblank. Otherwise it disturbs the PPU mid-frame and the picture glitches. */

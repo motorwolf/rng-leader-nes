@@ -36,7 +36,7 @@ OBJECTS := $(addprefix $(BUILD)/, $(addsuffix .o, $(ASM_SOURCES) $(C_SOURCES)))
 
 # cc65 options:
 #   -t nes  target the NES (selects the right runtime library and settings)
-#   -O      optimise the generated code
+#   -O      optimize the generated code
 #   -i      prefer inlining small things over calling them (faster, slightly bigger)
 #   -r      keep frequently used local variables in fast zero-page "registers"
 #   -s      inline some standard library calls (strlen, memcpy and similar)

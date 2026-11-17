@@ -1,12 +1,12 @@
 """measure_scale.py - find the real pixel size of scaled-up pixel art.
 
 Pixel art for the web is usually drawn small and enlarged by a whole number
-(nearest-neighbour scaling): every art pixel becomes an N x N block of
+(nearest-neighbor scaling): every art pixel becomes an N x N block of
 identical screen pixels. To convert it for the NES, the first step is to find
 N and shrink the image back to its true size.
 
 Method: run-length analysis. Walk along each row and count runs of identical
-pixels (a run is a stretch of the same colour). Every run is a whole number
+pixels (a run is a stretch of the same color). Every run is a whole number
 of blocks long, so N divides every run length, and N is the greatest common
 divisor (GCD) of them all. Same for columns, which gives the vertical scale.
 
@@ -57,15 +57,15 @@ def measure(path):
     scale_x = scale_of(rows)
     scale_y = scale_of(columns)
 
-    # Fully transparent pixels count as one colour whatever RGB they hold.
-    colours = {p if p[3] else (0, 0, 0, 0) for p in image.get_flattened_data()}
+    # Fully transparent pixels count as one color whatever RGB they hold.
+    colors = {p if p[3] else (0, 0, 0, 0) for p in image.get_flattened_data()}
 
     print(f"{path}")
     print(f"  size on disk : {width} x {height}")
     print(f"  block size   : {scale_x} x {scale_y}")
     if scale_x and scale_y:
         print(f"  true size    : {width / scale_x:g} x {height / scale_y:g}")
-    print(f"  colours      : {len(colours)}")
+    print(f"  colors      : {len(colors)}")
 
 
 if __name__ == "__main__":
