@@ -132,12 +132,12 @@ def decode_tile(tile):
 #
 # Enemies are drawn as sprites (see PLAN.md). Each 8x8 sprite picks one of
 # the 4 sprite palettes, and each palette is 3 colours plus transparent
-# (slot 0). An enemy may use 3 of the palettes; the 4th is kept for the
-# player. So an enemy can have up to 9 colours, but any one 8x8 piece only 3.
+# (slot 0). The player never appears in battle, so an enemy may use all 4
+# palettes: up to 12 colours, but any one 8x8 piece only 3.
 #
 # Two stages:
 #   1. Within each 8x8 piece, merge colours until it has at most 3.
-#   2. Pack the pieces' colour sets into at most 3 palettes. A piece that
+#   2. Pack the pieces' colour sets into the palettes. A piece that
 #      fits no palette is drawn with the closest colours of the best one.
 
 def colour_gap(a, b):
@@ -308,7 +308,7 @@ def convert_enemy(pixels):
         for x, c in enumerate(row):
             if c == BLACK:
                 row[x] = None            # the sprite is see-through here
-    palettes, choice, tiles = convert_sprite(pixels)
+    palettes, choice, tiles = convert_sprite(pixels, max_palettes=4)
     return mask, palettes, choice, tiles
 
 
