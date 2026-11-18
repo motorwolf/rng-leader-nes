@@ -149,10 +149,10 @@ def decode_tile(tile):
 
 # --- Sprites: up to 3 palettes per object ------------------------------------
 #
-# Enemies are drawn as sprites (see PLAN.md). Each 8x8 sprite picks one of
-# the 4 sprite palettes, and each palette is 3 colors plus transparent
-# (slot 0). The player never appears in battle, so an enemy may use all 4
-# palettes: up to 12 colors, but any one 8x8 piece only 3.
+# Players are drawn as sprites. Each 8x8 sprite picks one of the 4 sprite
+# palettes, and each palette is 3 colors plus transparent (slot 0). Only one
+# sprite object is on the overworld, so a player may use all 4 palettes: up
+# to 12 colors, but any one 8x8 piece only 3.
 #
 # Two stages:
 #   1. Within each 8x8 piece, merge colors until it has at most 3.
@@ -195,18 +195,20 @@ def fit_cost(counts, palette):
     return sum(n * color_gap(c, closest_in(c, palette)) for c, n in counts.items())
 
 
-def pack_once(pieces, order, max_palettes, size):
+def pack_once(pieces, order, max_palettes, size, fixed=()):
     """One attempt at packing: a greedy first guess, placing pieces in the
-    given order, then refined. Returns (palettes, choice)."""
-    palettes = []
+    given order, then refined. Palettes in `fixed` come first and never
+    change. Returns (palettes, choice)."""
+    palettes = [list(p) for p in fixed]
     choice = [0] * len(pieces)
     for i in order:
         colors = set(pieces[i])
         if not colors:
             continue                     # fully transparent: any palette works
-        # Palettes this piece fits into, counting how many colors each would gain.
+        # Palettes this piece fits into, counting how many colors each would
+        # gain. A fixed palette only takes pieces it already covers.
         room = [(len(colors - set(p)), k) for k, p in enumerate(palettes)
-                if len(set(p) | colors) <= size]
+                if len(set(p) | colors) <= size and (k >= len(fixed) or colors <= set(p))]
         if room:
             _, k = min(room)             # the one that has to grow least
             palettes[k] += sorted(colors - set(palettes[k]))
@@ -224,7 +226,7 @@ def pack_once(pieces, order, max_palettes, size):
     #   a. rebuild each palette from the pieces that chose it;
     #   b. let every piece choose again, whichever palette now suits it best.
     for _ in range(20):
-        for k in range(len(palettes)):
+        for k in range(len(fixed), len(palettes)):
             members = Counter()
             for i, piece in enumerate(pieces):
                 if choice[i] == k:
@@ -245,10 +247,11 @@ def total_error(pieces, palettes, choice):
     return sum(fit_cost(piece, palettes[k]) for piece, k in zip(pieces, choice) if piece)
 
 
-def pack_palettes(pieces, max_palettes=3, size=3, restarts=30):
+def pack_palettes(pieces, max_palettes=3, size=3, restarts=30, fixed=()):
     """pieces: one Counter of colors per piece. Returns (palettes, choice):
     the palettes as lists of color numbers, and which palette each piece
-    uses.
+    uses. `fixed`: palettes that must stay as they are (counted in
+    max_palettes).
 
     k-means only finds the best answer near where it starts; a different
     first guess can settle somewhere better. So it runs several times: once
@@ -264,7 +267,7 @@ def pack_palettes(pieces, max_palettes=3, size=3, restarts=30):
         shuffler.shuffle(order)
         orders.append(order)
 
-    attempts = [pack_once(pieces, order, max_palettes, size) for order in orders]
+    attempts = [pack_once(pieces, order, max_palettes, size, fixed) for order in orders]
     return min(attempts, key=lambda a: total_error(pieces, *a))
 
 
@@ -339,48 +342,7 @@ def load_sprite_sheet(path, true_size):
     return image, rows
 
 
-# --- Enemies: black on the background, color on sprites --------------------
-#
-# Almost every 8x8 piece of an enemy contains black (the outlines, eyes and
-# mouth lines), so if black lived in the sprite palettes it would take one of
-# the 3 slots in every palette. Instead, black is drawn on the background
-# layer, as a silhouette behind the enemy, and the sprite is see-through
-# wherever the original is black. Each sprite palette then holds 3 real
-# colors. The cost is paid in the battle screen (Milestone 4): the
-# background tiles behind the enemy are generated from its silhouette.
-
 BLACK = 0x0F
-
-
-def convert_enemy(pixels):
-    """Split an enemy into a black mask for the background layer and sprite
-    tiles for everything else. Returns (mask, palettes, choice, tiles):
-    mask is rows of True (black) / False, the rest is as convert_sprite."""
-    pixels = [row[:] for row in pixels]
-    mask = [[c == BLACK for c in row] for row in pixels]
-    for y, row in enumerate(pixels):
-        for x, c in enumerate(row):
-            if c == BLACK:
-                row[x] = None            # the sprite is see-through here
-    palettes, choice, tiles = convert_sprite(pixels, max_palettes=4)
-    return mask, palettes, choice, tiles
-
-
-def render_enemy(mask, palettes, choice, tiles, backdrop):
-    """Draw what the NES would show: backdrop, black silhouette, sprites on top."""
-    width = len(mask[0])
-    image = Image.new("RGB", (width, len(mask)), backdrop)
-    for y, row in enumerate(mask):
-        for x, black in enumerate(row):
-            if black:
-                image.putpixel((x, y), rgb(NES_RGB[BLACK]))
-    for i, tile in enumerate(tiles):
-        ox, oy = (i % (width // 8)) * 8, (i // (width // 8)) * 8
-        for y, row in enumerate(decode_tile(tile)):
-            for x, slot in enumerate(row):
-                if slot:
-                    image.putpixel((ox + x, oy + y), rgb(NES_RGB[palettes[choice[i]][slot - 1]]))
-    return image
 
 
 # --- Backgrounds: palettes per 16x16 area -----------------------------------
@@ -473,23 +435,110 @@ def save_comparison(sheet, converted, behind, path):
     out.resize((out.width * 4, out.height * 4), Image.NEAREST).save(path)
 
 
+# --- Battle screens ----------------------------------------------------------
+#
+# The battle screen is one background picture: the backdrop enlarged 4x
+# (64 x 4 = 256, the screen's width) with the enemy enlarged 4x standing on
+# it, the same proportions as the original game, which stretched both.
+# Sprites can't do it: a 128x128 enemy would need 256 of them, and the NES
+# has 64.
+#
+# Enlarging is cheaper than it sounds. At 4x an 8x8 tile covers only 2x2 art
+# pixels, so tiles repeat a lot, and a 16x16 palette area covers 4x4 art
+# pixels, which rarely hold more than 3 colors.
+#
+# The backdrop is stored once, with one fixed palette (palette 0). Each enemy
+# stores only its 128x128 area: the tiles the backdrop doesn't already have,
+# the tile numbers for the area, the other 3 palettes and the attribute table.
+
+SCALE = 4
+CROP_TOP = 4            # 64 art rows x 4 = 256 pixels, 16 more than the screen:
+                        # drop the top 4 art rows (the original cropped the top too)
+ENEMY_X, ENEMY_Y = 64, 80   # the enemy's top-left on screen. Matches the original:
+                            # centered, feet on the ground, clear of the sun.
+                            # Multiples of 16, so its area lines up with palette areas.
+
+
+def enlarge(rows, scale):
+    """Nearest-neighbor enlargement: every pixel becomes a scale x scale block."""
+    return [[v for v in row for _ in range(scale)] for row in rows for _ in range(scale)]
+
+
+def convert_backdrop(art_rows):
+    """The backdrop alone, as a full screen. It has 3 colors besides the sky,
+    so one palette covers all of it. Returns (screen pixels, shared color,
+    palette, the 960 tiles of the screen)."""
+    screen = enlarge(art_rows, SCALE)[CROP_TOP * SCALE:CROP_TOP * SCALE + 240]
+    shared = most_common(art_rows)
+    palettes, _, tiles = convert_background(screen, shared, max_palettes=1)
+    return screen, shared, palettes[0], tiles
+
+
+def convert_battle(screen, shared, backdrop_palette, backdrop_tiles, enemy_rows):
+    """Stand an enemy on the backdrop and convert its area. Returns
+    (palettes, palette per 16x16 area for the whole screen, the 960 tiles)."""
+    pixels = [row[:] for row in screen]
+    for y, row in enumerate(enlarge(enemy_rows, SCALE)):
+        for x, color in enumerate(row):
+            if color is not None:
+                pixels[ENEMY_Y + y][ENEMY_X + x] = color
+    areas = [(x, y) for y in range(ENEMY_Y, ENEMY_Y + 128, 16)
+             for x in range(ENEMY_X, ENEMY_X + 128, 16)]
+    pieces = merge_regions(pixels, areas, 16, ignore=shared)
+    palettes, area_choice = pack_palettes(pieces, 4, fixed=[backdrop_palette])
+
+    choice = [0] * (16 * 15)            # outside the enemy: the backdrop's palette
+    for (x, y), k in zip(areas, area_choice):
+        choice[(y // 16) * 16 + x // 16] = k
+    tiles = list(backdrop_tiles)
+    for ty in range(ENEMY_Y, ENEMY_Y + 128, 8):
+        for tx in range(ENEMY_X, ENEMY_X + 128, 8):
+            palette = palettes[choice[(ty // 16) * 16 + tx // 16]]
+            tiles[(ty // 8) * 32 + tx // 8] = encode_tile(
+                [[0 if pixels[y][x] == shared
+                  else 1 + palette.index(closest_in(pixels[y][x], palette))
+                  for x in range(tx, tx + 8)]
+                 for y in range(ty, ty + 8)])
+    return palettes, choice, tiles
+
+
+def attribute_table(choice):
+    """Pack a palette number per 16x16 area (16 across, 15 down) into the
+    64-byte attribute table: one byte per 32x32 block, 2 bits per quarter,
+    top-left in the lowest bits. The screen is 7.5 blocks tall, so the last
+    row of bytes only uses its top half."""
+    def at(ax, ay):
+        return choice[ay * 16 + ax] if ay < 15 else 0
+    return [at(2 * bx, 2 * by) | at(2 * bx + 1, 2 * by) << 2 |
+            at(2 * bx, 2 * by + 1) << 4 | at(2 * bx + 1, 2 * by + 1) << 6
+            for by in range(8) for bx in range(8)]
+
+
 # --- Output: C arrays for the ROM -------------------------------------------
 #
-# Each converted image becomes a "picture": its distinct tiles, a map saying
-# which tile goes in each 8x8 cell, which palette each part uses, and the
-# palette colors. The NES has no image files, so this is how art reaches the
-# ROM: as constant byte arrays the C code copies into graphics RAM.
+# The NES has no image files, so art reaches the ROM as constant byte arrays,
+# ready to copy into graphics memory. Each distinct tile is stored once, with
+# maps saying which tile goes where.
+#
+# The art is too big for the fixed bank (16 KB, shared with all the code), so
+# it goes in the switchable banks: the C code switches to an item's bank
+# before reading it. Small index tables in the fixed bank say where each
+# item is.
 
-def unique_tiles(tiles):
+BANK_ROOM = 0x4000 - 16          # each bank ends with a 16-byte reset stub
+
+
+def unique_tiles(tiles, known=None):
     """Deduplication: keep the first copy of each distinct tile. Returns
-    (the distinct tiles, the tile number for every cell of the original).
-    Flat areas repeat a lot (solid grass, see-through sprite corners), and
-    graphics RAM only holds 512 tiles, so every duplicate saved counts."""
-    unique, number_of, numbers = [], {}, []
+    (the new distinct tiles, the tile number for every cell). `known` maps
+    tiles already stored elsewhere to their numbers; they're reused, and
+    new tiles are numbered after them."""
+    number_of = dict(known or {})
+    unique, numbers = [], []
     for tile in tiles:
         key = tuple(tile)
         if key not in number_of:
-            number_of[key] = len(unique)
+            number_of[key] = len(number_of)
             unique.append(tile)
         numbers.append(number_of[key])
     return unique, numbers
@@ -505,174 +554,236 @@ def full_palettes(palettes, slot0):
     return out
 
 
-def picture(width, height, tiles, palette_map=None, palettes=None):
-    """Bundle one converted image (width and height in pixels)."""
-    unique, numbers = unique_tiles(tiles)
-    return {"width": width // 8, "height": height // 8, "tiles": unique,
-            "map": numbers, "palette_map": palette_map, "palettes": palettes}
-
-
-def outline_tiles(mask):
-    """An enemy's black silhouette as background tiles: slot 1 where the
-    original is black, slot 0 elsewhere. Which palette supplies the black is
-    decided with the battle screen layout (Milestone 4)."""
-    tiles = []
-    for ty in range(0, len(mask), 8):
-        for tx in range(0, len(mask[0]), 8):
-            tiles.append(encode_tile([[int(mask[y][x]) for x in range(tx, tx + 8)]
-                                      for y in range(ty, ty + 8)]))
-    return tiles
-
-
 HEADER = """\
-/* art.h - generated by tools/convert.py from the PNGs in art/. Don't edit; make
- * rebuilds it when the art or the converter changes. */
+/* art.h - generated by tools/convert.py from the PNGs in art/. Don't edit;
+ * make rebuilds it when the art or the converter changes.
+ *
+ * The art lives in the switchable banks: switch to an item's bank with
+ * mmc1_set_bank() before reading it. The bank numbers and the tables of
+ * pointers below are in the fixed bank, so they can always be read. */
 
 #ifndef ART_H
 #define ART_H
 
-/* One converted image. Sizes are in 8x8 tiles. */
+/* The overworld terrain: four 32x32 squares (grass, sand, castle, forest). */
 typedef struct {
-    unsigned char width, height;
-    unsigned char tile_count;            /* distinct tiles */
-    const unsigned char *tiles;          /* tile_count x 16 bytes, ready for graphics RAM */
-    const unsigned char *map;            /* tile number for each 8x8 cell, row by row */
-    const unsigned char *palette_map;    /* palette for each 8x8 cell (sprites) or
-                                            16x16 area (backgrounds); 0 if none */
-    const unsigned char *palettes;       /* 16 bytes: 4 palettes x 4 colors; 0 if none */
-} Picture;
+    unsigned char tile_count;
+    const unsigned char *tiles;              /* tile_count x 16 bytes */
+    const unsigned char *squares;            /* 16 tile numbers per square, 4x4, row by row */
+    const unsigned char *square_attributes;  /* 1 attribute byte per square: a square
+                                                is exactly one 32x32 attribute block */
+    const unsigned char *palettes;           /* 16 bytes: 4 background palettes */
+} Terrain;
 
-/* Sprite palettes have black in slot 0, which is never drawn (it means
- * see-through). But $3F10, slot 0 of the first sprite palette, is a mirror
- * of $3F00, the shared background color: write sprite palettes before
- * background palettes, or the shared color turns black. */
+/* The battle backdrop, enlarged to fill the screen. */
+typedef struct {
+    unsigned char tile_count;
+    const unsigned char *tiles;
+    const unsigned char *nametable;          /* 960 tile numbers: the whole screen */
+} Backdrop;
+
+/* One battle screen: an enemy standing on the backdrop. Only the enemy's
+ * 16x16-tile area differs from the backdrop. */
+typedef struct {
+    unsigned char tile_count;                /* new tiles, numbered after the backdrop's */
+    const unsigned char *tiles;
+    const unsigned char *tile_map;           /* 256 tile numbers for the enemy's area */
+    const unsigned char *attributes;         /* 64 bytes: the whole attribute table */
+    const unsigned char *palettes;           /* 16 bytes: 4 background palettes */
+} Battle;
+
+/* A 32x32 sprite object (a player): 16 sprites in a 4x4 grid. */
+typedef struct {
+    unsigned char tile_count;
+    const unsigned char *tiles;
+    const unsigned char *tile_map;           /* 16 tile numbers, row by row */
+    const unsigned char *sprite_palettes;    /* 16: which palette each sprite uses */
+    const unsigned char *palettes;           /* 16 bytes: 4 sprite palettes */
+} Sprite;
 
 """
 
 
-def c_bytes(name, values):
-    """A C array of bytes, 16 per line."""
-    lines = ["    " + ", ".join(f"0x{v:02X}" for v in values[i:i + 16]) + ","
-             for i in range(0, len(values), 16)]
-    return f"static const unsigned char {name}[] = {{\n" + "\n".join(lines) + "\n};\n"
+class Output:
+    """Collects C text, filling the switchable banks in order."""
+
+    def __init__(self):
+        self.banks = [[]]
+        self.room = BANK_ROOM
+        self.header = [HEADER]
+        self.fixed = []
+
+    def array(self, name, values):
+        return (f"static const unsigned char {name}[{len(values)}] = {{\n"
+                + "\n".join("    " + ", ".join(f"0x{v:02X}" for v in values[i:i + 16]) + ","
+                            for i in range(0, len(values), 16))
+                + "\n};\n", len(values))
+
+    def item(self, type_name, name, fields):
+        """Place one struct and its arrays in a bank. fields: a list of
+        numbers (ints) and (array name, values). Returns the bank number."""
+        text, size, inits = [], 16, []
+        for field in fields:
+            if isinstance(field, int):
+                inits.append(str(field))
+            else:
+                array_text, array_size = self.array(f"{name}_{field[0]}", field[1])
+                text.append(array_text)
+                size += array_size
+                inits.append(f"{name}_{field[0]}")
+        text.append(f"const {type_name} {name} = {{ {', '.join(inits)} }};\n\n")
+        if size > self.room:
+            self.banks.append([])
+            self.room = BANK_ROOM
+        self.banks[-1].append("".join(text))
+        self.room -= size
+        return len(self.banks) - 1
+
+    def table(self, type_name, name, items):
+        """A table in the fixed bank of (bank, struct name) for a set of items."""
+        count = len(items)
+        self.header.append(f"extern const unsigned char {name}_bank[{count}];\n"
+                           f"extern const {type_name} * const {name}[{count}];\n")
+        self.fixed.append(
+            f"const unsigned char {name}_bank[{count}] = {{ "
+            + ", ".join(str(bank) for bank, _ in items) + " };\n"
+            f"const {type_name} * const {name}[{count}] = {{\n"
+            + "".join(f"    &{struct},\n" for _, struct in items) + "};\n\n")
+
+    def write(self, c_path, h_path):
+        if len(self.banks) > 15:
+            raise SystemExit("art doesn't fit in the 15 switchable banks")
+        source = ["/* art.c - generated by tools/convert.py. Don't edit. */\n\n"
+                  '#include "art.h"\n\n']
+        for number, bank in enumerate(self.banks):
+            source.append(f'#pragma rodata-name (push, "BANK{number:02d}")\n\n')
+            source += bank
+            source.append("#pragma rodata-name (pop)\n\n")
+        source.append("/* In the fixed bank: where everything is. */\n\n")
+        source += self.fixed
+        Path(c_path).write_text("".join(source))
+        Path(h_path).write_text("".join(self.header) + "\n#endif\n")
+        print(f"wrote {c_path} and {h_path}: {len(self.banks)} bank(s), "
+              f"{BANK_ROOM - self.room} bytes in the last")
 
 
-def c_picture(prefix, p):
-    """The arrays for one picture, and the initializer that points to them."""
-    arrays = c_bytes(f"{prefix}_tiles", [b for tile in p["tiles"] for b in tile])
-    arrays += c_bytes(f"{prefix}_map", p["map"])
-    fields = [str(p["width"]), str(p["height"]), str(len(p["tiles"])),
-              f"{prefix}_tiles", f"{prefix}_map"]
-    for key in ("palette_map", "palettes"):
-        if p[key] is None:
-            fields.append("0")
-        else:
-            arrays += c_bytes(f"{prefix}_{key}", p[key])
-            fields.append(f"{prefix}_{key}")
-    return arrays, "{ " + ", ".join(fields) + " }"
+def render_sprite(palettes, choice, tiles, backdrop):
+    """Draw what the NES would show for a 32x32 sprite object."""
+    image = Image.new("RGB", (32, 32), backdrop)
+    for i, tile in enumerate(tiles):
+        ox, oy = (i % 4) * 8, (i // 4) * 8
+        for y, row in enumerate(decode_tile(tile)):
+            for x, slot in enumerate(row):
+                if slot:
+                    image.putpixel((ox + x, oy + y), rgb(NES_RGB[palettes[choice[i]][slot - 1]]))
+    return image
 
 
-def write_c(art, c_path, h_path):
-    """art maps a C name to a picture, or to a list of pictures (an array)."""
-    header, source = [HEADER], ["/* art.c - generated by tools/convert.py. Don't edit. */\n\n"
-                                '#include "art.h"\n\n']
-    for name, value in art.items():
-        if isinstance(value, list):
-            header.append(f"extern const Picture {name}[{len(value)}];\n")
-            inits = []
-            for i, p in enumerate(value):
-                arrays, init = c_picture(f"{name}{i}", p)
-                source.append(arrays)
-                inits.append("    " + init + ",")
-            source.append(f"const Picture {name}[{len(value)}] = {{\n" + "\n".join(inits) + "\n};\n\n")
-        else:
-            header.append(f"extern const Picture {name};\n")
-            arrays, init = c_picture(name, value)
-            source.append(arrays + f"const Picture {name} = {init};\n\n")
-    header.append("\n#endif\n")
-    Path(h_path).write_text("".join(header))
-    Path(c_path).write_text("".join(source))
-
-
-def tile_total(value):
-    pictures = value if isinstance(value, list) else [value]
-    return sum(len(p["tiles"]) for p in pictures), sum(p["width"] * p["height"] for p in pictures)
+def screen_image(pixels):
+    """Pixels (NES color numbers) as an RGB image."""
+    image = Image.new("RGB", (len(pixels[0]), len(pixels)))
+    image.putdata([rgb(NES_RGB[c]) for row in pixels for c in row])
+    return image
 
 
 if __name__ == "__main__":
     Path("build").mkdir(exist_ok=True)
-    art = {}
+    out = Output()
 
-    # Backgrounds: the overworld terrain and the battle backdrop. Each is its
-    # own screen, so each gets its own 4 background palettes and shared color.
-    for name, c_name, true_size, colors in (("terrain", "terrain", (128, 32), "oklab"),
-                                             ("background", "backdrop", (64, 64), "rgb")):
-        use_method(colors)
-        sheet, rows = load_sprite_sheet(f"art/{name}.png", true_size)
-        if name == "terrain":
-            for square in REPEATING_SQUARES:
-                repeat_piece(rows, square * 32)
-        shared = most_common(rows)
-        palettes, choice, tiles = convert_background(rows, shared)
-        art[c_name] = picture(sheet.width, sheet.height, tiles, choice,
-                              full_palettes(palettes, shared))
-        image = render_background(sheet.width, sheet.height, shared, palettes, choice, tiles)
-        print(f"{name}: {len(tiles)} tiles, shared color ${shared:02X}, palettes: "
-              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
-        print(f"  palette per 16x16 area: {choice}")
-        save_comparison(sheet, image, rgb(NES_RGB[shared]), f"build/preview_{name}.png")
-        print(f"preview: build/preview_{name}.png (original on top, NES below)\n")
-
-    # enemies.png: fifteen 32x32 enemies in a row, at block size 20.
-    use_method("rgb")
-    sheet, rows = load_sprite_sheet("art/enemies.png", (480, 32))
-    backdrop = (220, 220, 220)               # stands in for the battle backdrop
-    out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
-    out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, backdrop + (255,)), sheet), (0, 0))
-    print("\nenemies:  colors before -> after, sprite palettes")
-    art["enemies"], art["enemy_outlines"] = [], []
-    for e in range(15):
-        pixels = [row[e * 32:e * 32 + 32] for row in rows]
-        before = len({c for row in pixels for c in row if c is not None})
-        mask, palettes, choice, tiles = convert_enemy(pixels)
-        art["enemies"].append(picture(32, 32, tiles, choice, full_palettes(palettes, BLACK)))
-        art["enemy_outlines"].append(picture(32, 32, outline_tiles(mask)))
-        image = render_enemy(mask, palettes, choice, tiles, backdrop)
-        out.paste(image, (e * 32, 36))
-        after = len(set(image.get_flattened_data()) - {backdrop})
-        print(f"  {e:2}: {before:2} -> {after}   "
-              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
-    out.resize((out.width * 4, out.height * 4), Image.NEAREST).save("build/preview_enemies.png")
-    print("preview: build/preview_enemies.png (originals on top, NES below)")
-
-    # players.png: five 32x32 characters, resized with smoothing; the true
-    # grid (160 x 32) was found by checking which grid puts every sample
-    # point clear of the blurred edges. Players move, so the outline trick
-    # can't follow them: black stays in the sprite palettes. On the
-    # overworld no enemy is on screen, so a player may use all 4 palettes.
+    # --- Terrain (oklab matched best by eye) ---
     use_method("oklab")
-    sheet, rows = load_sprite_sheet("art/players.png", (160, 32))
-    out = Image.new("RGB", (sheet.width, 32 * 2 + 4), (255, 255, 255))
-    out.paste(Image.alpha_composite(Image.new("RGBA", sheet.size, backdrop + (255,)), sheet), (0, 0))
-    print("\nplayers:  colors before -> after, sprite palettes")
-    art["players"] = []
-    for e in range(5):
-        pixels = [row[e * 32:e * 32 + 32] for row in rows]
-        before = len({c for row in pixels for c in row if c is not None})
-        palettes, choice, tiles = convert_sprite(pixels, max_palettes=4)
-        art["players"].append(picture(32, 32, tiles, choice, full_palettes(palettes, BLACK)))
-        no_mask = [[False] * 32 for _ in range(32)]
-        image = render_enemy(no_mask, palettes, choice, tiles, backdrop)
-        out.paste(image, (e * 32, 36))
-        after = len(set(image.get_flattened_data()) - {backdrop})
-        print(f"  {e:2}: {before:2} -> {after}   "
-              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
-    out.resize((out.width * 4, out.height * 4), Image.NEAREST).save("build/preview_players.png")
-    print("preview: build/preview_players.png (originals on top, NES below)")
+    sheet, rows = load_sprite_sheet("art/terrain.png", (128, 32))
+    for square in REPEATING_SQUARES:
+        repeat_piece(rows, square * 32)
+    terrain_shared = most_common(rows)
+    palettes, choice, tiles = convert_background(rows, terrain_shared)
+    image = render_background(128, 32, terrain_shared, palettes, choice, tiles)
+    save_comparison(sheet, image, rgb(NES_RGB[terrain_shared]), "build/preview_terrain.png")
+    unique, numbers = unique_tiles(tiles)
+    squares = [numbers[r * 16 + s * 4 + c] for s in range(4) for r in range(4) for c in range(4)]
+    square_attributes = [choice[2 * s] | choice[2 * s + 1] << 2 |
+                         choice[8 + 2 * s] << 4 | choice[9 + 2 * s] << 6 for s in range(4)]
+    bank = out.item("Terrain", "terrain", [
+        len(unique), ("tiles", [b for t in unique for b in t]), ("squares", squares),
+        ("square_attributes", square_attributes),
+        ("palettes", full_palettes(palettes, terrain_shared))])
+    out.header.append(f"#define TERRAIN_BANK {bank}\nextern const Terrain terrain;\n")
+    print(f"terrain: {len(unique)} tiles, shared ${terrain_shared:02X}, palettes "
+          + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
 
-    write_c(art, "build/art.c", "build/art.h")
-    print("\ntiles stored / cells drawn:")
-    for name, value in art.items():
-        stored, cells = tile_total(value)
-        print(f"  {name:15} {stored:4} / {cells:4}")
-    print("wrote build/art.c and build/art.h")
+    # --- Players: sprites (oklab). They appear only on the overworld, so slot 0
+    # of their palettes is the terrain's shared color: $3F10, the first sprite
+    # palette's slot 0, is the same memory as $3F00, the shared color. ---
+    sheet, rows = load_sprite_sheet("art/players.png", (160, 32))
+    preview = Image.new("RGB", (160, 32 * 2 + 4), (255, 255, 255))
+    preview.paste(Image.alpha_composite(
+        Image.new("RGBA", sheet.size, rgb(NES_RGB[terrain_shared]) + (255,)), sheet), (0, 0))
+    players = []
+    for e in range(5):
+        palettes, choice, tiles = convert_sprite([row[e * 32:e * 32 + 32] for row in rows],
+                                                 max_palettes=4)
+        preview.paste(render_sprite(palettes, choice, tiles, rgb(NES_RGB[terrain_shared])),
+                      (e * 32, 36))
+        unique, numbers = unique_tiles(tiles)
+        name = f"player{e}"
+        players.append((out.item("Sprite", name, [
+            len(unique), ("tiles", [b for t in unique for b in t]), ("tile_map", numbers),
+            ("sprite_palettes", choice),
+            ("palettes", full_palettes(palettes, terrain_shared))]), name))
+    preview.resize((640, 272), Image.NEAREST).save("build/preview_players.png")
+    out.header.append(f"\n#define PLAYER_COUNT {len(players)}\n")
+    out.table("Sprite", "players", players)
+
+    # --- Battles: backdrop and enemies (weighted RGB matched best by eye) ---
+    use_method("rgb")
+    _, back_rows = load_sprite_sheet("art/background.png", (64, 64))
+    screen, shared, backdrop_palette, backdrop_tiles = convert_backdrop(back_rows)
+    backdrop_unique, backdrop_map = unique_tiles(backdrop_tiles)
+    bank = out.item("Backdrop", "backdrop", [
+        len(backdrop_unique), ("tiles", [b for t in backdrop_unique for b in t]),
+        ("nametable", backdrop_map)])
+    out.header.append(f"\n#define BACKDROP_BANK {bank}\n"
+                      f"#define BACKDROP_TILES {len(backdrop_unique)}\n"
+                      "extern const Backdrop backdrop;\n\n"
+                      f"/* Where the enemy's area starts, in tiles. */\n"
+                      f"#define BATTLE_ENEMY_X {ENEMY_X // 8}\n"
+                      f"#define BATTLE_ENEMY_Y {ENEMY_Y // 8}\n")
+    print(f"backdrop: {len(backdrop_unique)} tiles, shared ${shared:02X}, palette "
+          + "/".join(f"${c:02X}" for c in backdrop_palette))
+
+    known = {tuple(t): n for n, t in enumerate(backdrop_unique)}
+    _, enemy_rows = load_sprite_sheet("art/enemies.png", (480, 32))
+    preview = Image.new("RGB", (5 * 262, 6 * 246), (255, 255, 255))
+    battles = []
+    for e in range(15):
+        enemy = [row[e * 32:e * 32 + 32] for row in enemy_rows]
+        palettes, choice, tiles = convert_battle(screen, shared, backdrop_palette,
+                                                 backdrop_tiles, enemy)
+        area = [tiles[ty * 32 + tx] for ty in range(ENEMY_Y // 8, ENEMY_Y // 8 + 16)
+                for tx in range(ENEMY_X // 8, ENEMY_X // 8 + 16)]
+        new, numbers = unique_tiles(area, known)
+        if len(backdrop_unique) + len(new) > 256:
+            raise SystemExit(f"enemy {e}: more than 256 background tiles")
+        name = f"battle{e}"
+        battles.append((out.item("Battle", name, [
+            len(new), ("tiles", [b for t in new for b in t]), ("tile_map", numbers),
+            ("attributes", attribute_table(choice)),
+            ("palettes", full_palettes(palettes, shared))]), name))
+        print(f"  enemy {e:2}: {len(new):3} new tiles, palettes "
+              + "  ".join("/".join(f"${c:02X}" for c in p) for p in palettes))
+
+        original = [row[:] for row in screen]
+        for y, row in enumerate(enlarge(enemy, SCALE)):
+            for x, color in enumerate(row):
+                if color is not None:
+                    original[ENEMY_Y + y][ENEMY_X + x] = color
+        col, row = e % 5, (e // 5) * 2
+        preview.paste(screen_image(original), (col * 262, row * 246))
+        preview.paste(render_background(256, 240, shared, palettes, choice, tiles),
+                      (col * 262, (row + 1) * 246))
+    preview.save("build/preview_battles.png")
+    out.header.append(f"\n#define ENEMY_COUNT {len(battles)}\n")
+    out.table("Battle", "battles", battles)
+
+    out.write("build/art.c", "build/art.h")
+    print("previews: build/preview_{terrain,players,battles}.png (original above NES)")

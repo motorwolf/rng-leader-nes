@@ -13,7 +13,7 @@
 # The pipeline for this project:
 #
 #   src/main.c ──cc65──► build/main.s ──ca65──► build/main.o ─┐
-#   src/mmc1.c ──cc65──► build/mmc1.s ──ca65──► build/mmc1.o ─┤
+#   src/*.c    ──cc65──► build/*.s    ──ca65──► build/*.o    ─┤
 #   src/startup.s ─────────────ca65──► build/startup.o ───────┼─ld65─► build/rng-leader.nes
 #   src/reset_stubs.s ─────────ca65──► build/reset_stubs.o ───┤   (laid out by mmc1.cfg)
 #   src/header.s ──────────────ca65──► build/header.o ────────┤
@@ -30,7 +30,7 @@ BUILD := build
 ROM   := $(BUILD)/$(NAME).nes
 
 # The source files. Adding a new .c or .s file to src/ means adding its name here.
-C_SOURCES   := main mmc1 ppu
+C_SOURCES   := main mmc1 pad ppu screens
 ASM_SOURCES := header startup reset_stubs
 
 # Every source file becomes one object file in build/, plus the generated art.
@@ -46,7 +46,8 @@ ART    := $(wildcard art/*.png)
 #   -i      prefer inlining small things over calling them (faster, slightly bigger)
 #   -r      keep frequently used local variables in fast zero-page "registers"
 #   -s      inline some standard library calls (strlen, memcpy and similar)
-CFLAGS := -t nes -Oirs
+#   -I      also look in build/ for headers (for the generated art.h)
+CFLAGS := -t nes -Oirs -I $(BUILD)
 
 # --- Rules ----------------------------------------------------------------
 
@@ -90,9 +91,13 @@ $(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
 
 # Header dependencies: if a header (the "menu") changes, every C file that
 # includes it must be recompiled, even though its own .c is unchanged.
-$(BUILD)/main.s: src/mmc1.h src/ppu.h
-$(BUILD)/mmc1.s: src/mmc1.h
-$(BUILD)/ppu.s:  src/ppu.h
+# The C files that include art.h also need it generated first.
+# -I build lets them find it there.
+$(BUILD)/main.s:    src/mmc1.h src/pad.h src/ppu.h src/screens.h $(BUILD)/art.h
+$(BUILD)/mmc1.s:    src/mmc1.h
+$(BUILD)/pad.s:     src/pad.h
+$(BUILD)/ppu.s:     src/ppu.h
+$(BUILD)/screens.s: src/mmc1.h src/ppu.h src/screens.h $(BUILD)/art.h
 
 $(BUILD):
 	mkdir -p $(BUILD)

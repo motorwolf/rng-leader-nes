@@ -46,7 +46,9 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/reset_stubs.s` | a small reset routine copied into every ROM bank |
 | `src/mmc1.c` | MMC1 mapper: bank switching |
 | `src/ppu.c` | sending tiles, maps and palettes to the graphics chip |
-| `src/main.c` | the game |
+| `src/pad.c` | reading the controller |
+| `src/screens.c` | drawing the overworld and battle screens from the converted art |
+| `src/main.c` | the game; for now an art viewer (Start switches screens, Left/Right picks the player or enemy) |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
 | `art/` | the original PNGs |
 | `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |

@@ -3,3 +3,4 @@ build/
 
 # Python virtual environment for the build tools; see the README.
 .venv/
+.claude/
