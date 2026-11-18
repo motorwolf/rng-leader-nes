@@ -316,10 +316,23 @@ def convert_sprite(pixels, max_palettes=3):
     return palettes, choice, tiles
 
 
+# Hand-picked NES colors, per image: original color -> NES color number.
+# Used where the closest color by the numbers looks wrong in context. Each
+# was chosen by eye from previews.
+OVERRIDES = {
+    "art/terrain.png": {
+        (0x19, 0x3C, 0x3E): 0x0A,   # forest's dark teal: the closest match ($0C)
+                                    # is a blue that reads as water
+        (0x63, 0xC7, 0x4D): 0x1A,   # grass's light green: $2A, a bright lime, is
+                                    # closest; this deeper green is calmer
+    },
+}
+
+
 def load_sprite_sheet(path, true_size):
     """Shrink a sheet to its true size, (width, height) in art pixels, and
-    map it to NES colors, keeping transparency (None). Returns rows of
-    color numbers.
+    map it to NES colors (with any OVERRIDES for this image), keeping
+    transparency (None). Returns rows of color numbers.
 
     NEAREST takes the pixel at the center of each block. For a clean
     whole-number scale any pixel in the block would do; for players.png,
@@ -328,7 +341,7 @@ def load_sprite_sheet(path, true_size):
     original colors exactly."""
     image = Image.open(path).convert("RGBA")
     image = image.resize(true_size, Image.NEAREST)
-    cache = {}
+    cache = dict(OVERRIDES.get(path, {}))
     rows = []
     for y in range(image.height):
         row = []

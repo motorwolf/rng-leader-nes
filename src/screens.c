@@ -29,7 +29,7 @@ static void hide_sprites(void) {
 void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam_y) {
     const unsigned char *squares;
     const Sprite *p;
-    unsigned char x, y, square, i, px, py;
+    unsigned char x, y, square, i;
 
     mmc1_set_bank(TERRAIN_BANK);
     ppu_set_addr(PPU_TILES);
@@ -59,14 +59,8 @@ void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam
         }
     }
 
-    /* The player, standing on the castle if it's in view: 16 sprites, 4x4. */
-    hide_sprites();
-    if (START_X < cam_x || START_X >= cam_x + 8 || START_Y < cam_y || START_Y >= cam_y + 8) {
-        return;
-    }
-    px = (START_X - cam_x) << 5;        /* squares to pixels: x 32 */
-    py = (START_Y - cam_y) << 5;
-
+    /* The player's tiles, palettes, and the tile and palette of each of its
+     * 16 sprites. Their positions are set separately, by place_player(). */
     mmc1_set_bank(players_bank[player]);
     p = players[player];
     ppu_set_addr(PPU_SPRITE_TILES);
@@ -74,14 +68,19 @@ void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam
     ppu_set_addr(PPU_SPRITE_PALETTES);
     ppu_write(p->palettes, 16);
 
-    i = 0;
-    for (y = 0; y < 4; ++y) {
-        for (x = 0; x < 4; ++x) {
-            square = (y << 2) | x;                      /* which of the 16 pieces */
-            OAM[i]     = py + (y << 3) - 1;             /* the chip draws sprites a line late */
-            OAM[i + 1] = p->tile_map[square];
-            OAM[i + 2] = p->sprite_palettes[square];
-            OAM[i + 3] = px + (x << 3);
+    hide_sprites();
+    for (i = 0; i < 16; ++i) {
+        OAM[(i << 2) + 1] = p->tile_map[i];
+        OAM[(i << 2) + 2] = p->sprite_palettes[i];
+    }
+}
+
+void place_player(unsigned char x, unsigned char y) {
+    unsigned char row, col, i = 0;
+    for (row = 0; row < 32; row += 8) {
+        for (col = 0; col < 32; col += 8) {
+            OAM[i]     = y + row - 1;       /* the chip draws sprites a line late */
+            OAM[i + 3] = x + col;
             i += 4;
         }
     }
