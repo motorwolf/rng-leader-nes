@@ -6,8 +6,9 @@
 /* Both must only run while drawing is switched off: they rewrite most of
  * the graphics chip's memory. */
 
-/* The overworld terrain, with a player standing in the middle. */
-void show_overworld(unsigned char player);
+/* A screen of the overworld map (map.h), with its top-left corner at map
+ * square (cam_x, cam_y), and the player on the castle if it's in view. */
+void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam_y);
 
 /* The battle screen: an enemy standing on the backdrop. */
 void show_battle(unsigned char enemy);

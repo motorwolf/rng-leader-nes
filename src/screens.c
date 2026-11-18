@@ -6,6 +6,7 @@
  * sprite tiles in the second ($1000); PPU_CTRL tells the chip which is which. */
 
 #include "art.h"
+#include "map.h"
 #include "mmc1.h"
 #include "ppu.h"
 #include "screens.h"
@@ -16,29 +17,6 @@
  * palette), X position. */
 #define OAM ((unsigned char *)0x0200)
 
-/* A fixed overworld map, 8x8 squares of 32x32 pixels (the screen is 7.5
- * squares tall, so the last row is half off screen). Random maps arrive in
- * Milestone 2. */
-#define GRASS  0
-#define SAND   1
-#define CASTLE 2
-#define FOREST 3
-
-static const unsigned char layout[8][8] = {
-    { FOREST, FOREST, GRASS,  GRASS,  GRASS,  GRASS,  FOREST, FOREST },
-    { FOREST, GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  FOREST },
-    { GRASS,  GRASS,  CASTLE, GRASS,  GRASS,  GRASS,  GRASS,  GRASS  },
-    { GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  FOREST, GRASS  },
-    { GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  GRASS,  GRASS  },
-    { GRASS,  GRASS,  SAND,   SAND,   SAND,   SAND,   GRASS,  GRASS  },
-    { SAND,   SAND,   SAND,   SAND,   SAND,   SAND,   SAND,   SAND   },
-    { SAND,   SAND,   SAND,   SAND,   SAND,   SAND,   SAND,   SAND   },
-};
-
-/* Where the player's top-left corner goes: the middle of the screen. */
-#define PLAYER_X 112
-#define PLAYER_Y 104
-
 /* Move every sprite below the bottom of the screen, which hides it. */
 static void hide_sprites(void) {
     unsigned char i = 0;
@@ -48,10 +26,10 @@ static void hide_sprites(void) {
     } while (i != 0);    /* i wraps from 252 back to 0 after the 64th sprite */
 }
 
-void show_overworld(unsigned char player) {
+void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam_y) {
     const unsigned char *squares;
     const Sprite *p;
-    unsigned char x, y, square, i;
+    unsigned char x, y, square, i, px, py;
 
     mmc1_set_bank(TERRAIN_BANK);
     ppu_set_addr(PPU_TILES);
@@ -59,15 +37,16 @@ void show_overworld(unsigned char player) {
     ppu_set_addr(PPU_PALETTES);
     ppu_write(terrain.palettes, 16);
 
-    /* The nametable, one tile at a time, row by row. Tile (x, y) is in square
-     * (x / 4, y / 4), at position (x % 4, y % 4) inside it. With powers of
-     * two, dividing is shifting right and the remainder is masking off the
-     * low bits: x >> 2 and x & 3. Much cheaper than / and % on a 6502. */
+    /* The nametable, one tile at a time, row by row. Tile (x, y) on screen is
+     * in map square (cam_x + x / 4, cam_y + y / 4), at position (x % 4, y % 4)
+     * inside it. With powers of two, dividing is shifting right and the
+     * remainder is masking off the low bits: x >> 2 and x & 3. Much cheaper
+     * than / and % on a 6502. */
     squares = terrain.squares;
     ppu_set_addr(PPU_NAMETABLE0);
     for (y = 0; y < 30; ++y) {
         for (x = 0; x < 32; ++x) {
-            square = layout[y >> 2][x >> 2];
+            square = map[cam_y + (y >> 2)][cam_x + (x >> 2)];
             PPU_DATA = squares[(square << 4) | ((y & 3) << 2) | (x & 3)];
         }
     }
@@ -76,11 +55,18 @@ void show_overworld(unsigned char player) {
      * palettes come as one ready-made byte. */
     for (y = 0; y < 8; ++y) {
         for (x = 0; x < 8; ++x) {
-            PPU_DATA = terrain.square_attributes[layout[y][x]];
+            PPU_DATA = terrain.square_attributes[map[cam_y + y][cam_x + x]];
         }
     }
 
-    /* The player: 16 sprites in a 4x4 grid. */
+    /* The player, standing on the castle if it's in view: 16 sprites, 4x4. */
+    hide_sprites();
+    if (START_X < cam_x || START_X >= cam_x + 8 || START_Y < cam_y || START_Y >= cam_y + 8) {
+        return;
+    }
+    px = (START_X - cam_x) << 5;        /* squares to pixels: x 32 */
+    py = (START_Y - cam_y) << 5;
+
     mmc1_set_bank(players_bank[player]);
     p = players[player];
     ppu_set_addr(PPU_SPRITE_TILES);
@@ -88,15 +74,14 @@ void show_overworld(unsigned char player) {
     ppu_set_addr(PPU_SPRITE_PALETTES);
     ppu_write(p->palettes, 16);
 
-    hide_sprites();
     i = 0;
     for (y = 0; y < 4; ++y) {
         for (x = 0; x < 4; ++x) {
             square = (y << 2) | x;                      /* which of the 16 pieces */
-            OAM[i]     = PLAYER_Y + (y << 3) - 1;       /* the chip draws sprites a line late */
+            OAM[i]     = py + (y << 3) - 1;             /* the chip draws sprites a line late */
             OAM[i + 1] = p->tile_map[square];
             OAM[i + 2] = p->sprite_palettes[square];
-            OAM[i + 3] = PLAYER_X + (x << 3);
+            OAM[i + 3] = px + (x << 3);
             i += 4;
         }
     }

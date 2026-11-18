@@ -1,13 +1,14 @@
 /* main.c - main(): where the C part of the game begins.
  *
- * For now it's a viewer for the converted art (Milestone 1):
- *   Start        switch between the overworld and the battle screen
- *   Left/Right   previous or next player (overworld) or enemy (battle) */
+ * For now it's a viewer for the map generator (Milestone 2):
+ *   Start   make a new map
+ *   D-pad   move the view half a screen (smooth scrolling comes later) */
 
-#include "art.h"
+#include "map.h"
 #include "mmc1.h"
 #include "pad.h"
 #include "ppu.h"
+#include "rng.h"
 #include "screens.h"
 
 /* Counts frames; startup.s adds one every vblank. "volatile" tells the
@@ -23,6 +24,12 @@ extern volatile unsigned char frame_count;
  * including in the leftmost 8 pixels (bits 1 and 2). */
 #define MASK_SHOW 0x1E
 
+/* How far the view can go, in squares: the screen is 8 squares wide and 7.5
+ * tall, so the last row of squares is half off screen at the bottom. */
+#define CAM_MAX_X (MAP_WIDTH - 8)
+#define CAM_MAX_Y (MAP_HEIGHT - 8)
+#define CAM_STEP  4
+
 /* Sleep until the next vblank: the heartbeat every NES game is built on. */
 static void wait_frame(void) {
     unsigned char start = frame_count;
@@ -31,17 +38,12 @@ static void wait_frame(void) {
     }
 }
 
-/* Swap to a new screen. Drawing must be off while the graphics chip's memory
- * is rewritten, so the screen goes blank for a moment, as most NES games do
- * between scenes. */
-static void show(unsigned char battle, unsigned char which) {
+/* Redraw the screen. Drawing must be off while the graphics chip's memory is
+ * rewritten, so the screen goes blank for a moment. */
+static void show(unsigned char cam_x, unsigned char cam_y) {
     wait_frame();                 /* switch off at the start of a frame, not mid-picture */
     PPU_MASK = 0;
-    if (battle) {
-        show_battle(which);
-    } else {
-        show_overworld(which);
-    }
+    show_overworld(0, cam_x, cam_y);
 
     /* Using the mailbox also moves the PPU's scroll position (they share
      * internal wiring), so set the scroll back to the top-left corner. */
@@ -54,18 +56,24 @@ static void show(unsigned char battle, unsigned char which) {
 }
 
 void main(void) {
-    unsigned char battle = 0, player = 0, enemy = 0;
+    unsigned char cam_x = START_X - 3, cam_y = 0;
     unsigned char buttons, previous = 0, pressed;
+    unsigned char seeded = 0;
+    unsigned int frames = 0;      /* 16 bits, so 65,536 possible seeds, not 256 */
 
     mmc1_init();
 
     /* Switch on the vblank interrupt, which starts the frame_count clock. */
     PPU_CTRL = CTRL_SETTINGS;
-    show(0, player);
 
-    /* The game loop: once per frame, read the controller and react. */
+    /* A first map from the default seed, until the player presses Start. */
+    map_generate();
+    show(cam_x, cam_y);
+
+    /* The main loop: once per frame, read the controller and react. */
     for (;;) {
         wait_frame();
+        ++frames;
         buttons = pad_read();
         /* Buttons down now that weren't last frame: one press = one step,
          * however long the button is held. (Edge detection.) */
@@ -73,22 +81,25 @@ void main(void) {
         previous = buttons;
 
         if (pressed & PAD_START) {
-            battle = !battle;
+            /* The first press seeds the random numbers with how many frames
+             * have passed: a human can't press on an exact 1/60th of a
+             * second, so each run gets a different sequence. */
+            if (!seeded) {
+                rng_seed(frames);
+                seeded = 1;
+            }
+            map_generate();
         } else if (pressed & PAD_RIGHT) {
-            if (battle) {
-                enemy = (enemy == ENEMY_COUNT - 1) ? 0 : enemy + 1;
-            } else {
-                player = (player == PLAYER_COUNT - 1) ? 0 : player + 1;
-            }
+            cam_x = (cam_x + CAM_STEP > CAM_MAX_X) ? CAM_MAX_X : cam_x + CAM_STEP;
         } else if (pressed & PAD_LEFT) {
-            if (battle) {
-                enemy = (enemy == 0) ? ENEMY_COUNT - 1 : enemy - 1;
-            } else {
-                player = (player == 0) ? PLAYER_COUNT - 1 : player - 1;
-            }
+            cam_x = (cam_x < CAM_STEP) ? 0 : cam_x - CAM_STEP;
+        } else if (pressed & PAD_DOWN) {
+            cam_y = (cam_y + CAM_STEP > CAM_MAX_Y) ? CAM_MAX_Y : cam_y + CAM_STEP;
+        } else if (pressed & PAD_UP) {
+            cam_y = (cam_y < CAM_STEP) ? 0 : cam_y - CAM_STEP;
         } else {
             continue;             /* nothing changed: skip the redraw */
         }
-        show(battle, battle ? enemy : player);
+        show(cam_x, cam_y);
     }
 }
