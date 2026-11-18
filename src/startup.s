@@ -19,9 +19,8 @@
 .export __STARTUP__ : absolute = 1       ; tells the C compiler startup code exists
 .export reset, nmi, irq                  ; used by the reset stubs (reset_stubs.s)
 .export _frame_count                     ; readable from C as frame_count
-.export _ppu_updates_on, _scroll_ctrl, _scroll_x            ; the vblank queue,
-.export _vram_column, _vram_column_addr, _vram_column_ready ; filled in by C:
-.export _vram_attributes, _vram_attribute_addr, _vram_attributes_ready ; see nmi
+.export _ppu_updates_on, _scroll_ctrl, _scroll_x, _scroll_y ; the vblank queue,
+.export _vram_buffer, _vram_ready                            ; filled in by C: see nmi
 
 ; The graphics chip's registers: the addresses the processor writes to in
 ; order to talk to it.
@@ -39,15 +38,12 @@ OAMDMA    = $4014
 _frame_count: .res 1    ; goes up by one every vblank: the game's clock
 
 ; The vblank queue (see nmi). C fills these in during the frame.
-_ppu_updates_on:        .res 1   ; 0 while C is drawing with the screen off
-_scroll_ctrl:           .res 1   ; the PPU_CTRL value, including which nametable is left
-_scroll_x:              .res 1   ; the horizontal scroll within that nametable
-_vram_column:           .res 30  ; a column of tiles, top to bottom
-_vram_column_addr:      .res 2   ; where its top tile goes
-_vram_column_ready:     .res 1   ; 1 = write it at the next vblank
-_vram_attributes:       .res 8   ; a column of attribute (palette) bytes
-_vram_attribute_addr:   .res 2   ; where the top one goes; the rest are 8 apart
-_vram_attributes_ready: .res 1
+_ppu_updates_on: .res 1   ; 0 while C is drawing with the screen off
+_scroll_ctrl:    .res 1   ; the PPU_CTRL value, including which nametable is left
+_scroll_x:       .res 1   ; the horizontal scroll within that nametable
+_scroll_y:       .res 1   ; the vertical scroll, 0-239
+_vram_buffer:    .res 96  ; runs of bytes to write (format at nmi)
+_vram_ready:     .res 1   ; 1 = write the buffer at the next vblank
 
 .segment "OAM"
 oam: .res 256           ; sprite list at $0200, sent to the graphics chip every frame
@@ -111,14 +107,19 @@ reset:
 ; It interrupts whatever the game is doing, so it saves and restores the
 ; registers it uses. Keep it short: vblank time is precious.
 ;
-; Besides the sprite list, it copies the vblank queue: a column of tiles and
-; a column of palette bytes that C prepared during the frame, then sets the
-; scroll position. This part is in assembly because it's a race: the writes
-; must finish before the picture starts drawing, about 2,270 cycles in. The
-; same copy written in C took around 5,000. Here it's under 800.
+; Besides the sprite list, it copies the vblank queue that C prepared during
+; the frame (new tiles and palette bytes for the scrolling camera), then sets
+; the scroll position. This part is in assembly because it's a race: the
+; writes must finish before the picture starts drawing, about 2,270 cycles
+; in. The same copy written in C took around 5,000.
 ;
-; C fills the queue right after a vblank and sets the "ready" flags last, so
-; this never sees a half-filled queue.
+; The queue is a list of runs, each:
+;   1 byte   how many bytes follow (1-127); bit 7 set = write down a column
+;            (each byte goes 32 further on) instead of across a row
+;   2 bytes  the graphics-memory address of the first one, high byte first
+;   n bytes  the bytes
+; and a 0 at the end. C fills it right after a vblank and sets _vram_ready
+; last, so this never sees a half-filled queue.
 nmi:
     pha                 ; save A, X and Y
     txa
@@ -134,50 +135,40 @@ nmi:
     lda _ppu_updates_on
     beq @done           ; C is drawing with the screen off: hands off
 
-    ; A column of tiles. PPU_CTRL bit 2 makes each write move down a row.
-    lda _vram_column_ready
-    beq @attributes
-    lda _scroll_ctrl
-    ora #$04
-    sta PPUCTRL
-    bit PPUSTATUS       ; reset the address latch to "high byte next"
-    lda _vram_column_addr+1
-    sta PPUADDR
-    lda _vram_column_addr
-    sta PPUADDR
-    ldx #0
-@column:
-    lda _vram_column,x
-    sta PPUDATA
-    inx
-    cpx #30
-    bne @column
-    lda #0
-    sta _vram_column_ready
-
-    ; A column of palette bytes: 8 apart in memory, so one address each.
-@attributes:
-    lda _vram_attributes_ready
+    lda _vram_ready
     beq @scroll
-    lda _scroll_ctrl    ; back to moving right after each write
-    sta PPUCTRL
-    ldy _vram_attribute_addr   ; Y = the low byte of the address
-    ldx #0
-@attribute:
-    lda _vram_attribute_addr+1
-    sta PPUADDR
-    sty PPUADDR
-    lda _vram_attributes,x
-    sta PPUDATA
-    tya                 ; next address: 8 further on
-    clc
-    adc #8
-    tay
+    bit PPUSTATUS       ; reset the address latch to "high byte next"
+    ldx #0              ; X = position in the queue
+@run:
+    lda _vram_buffer,x  ; the run's length byte
+    beq @runs_done      ; 0: the end
     inx
-    cpx #8
-    bne @attribute
+    tay                 ; Y = the length byte, for now
+    lda _scroll_ctrl
+    cpy #$80            ; bit 7 set (128 or more)?
+    bcc @across
+    ora #$04            ; PPU_CTRL bit 2: each write moves down a row
+@across:
+    sta PPUCTRL
+    lda _vram_buffer,x  ; the address, high byte...
+    sta PPUADDR
+    inx
+    lda _vram_buffer,x  ; ...then low byte
+    sta PPUADDR
+    inx
+    tya
+    and #$7F            ; drop bit 7: Y = how many bytes
+    tay
+@byte:
+    lda _vram_buffer,x
+    sta PPUDATA
+    inx
+    dey
+    bne @byte
+    beq @run            ; Y is 0 here, so this always branches
+@runs_done:
     lda #0
-    sta _vram_attributes_ready
+    sta _vram_ready
 
     ; The scroll position, last: the writes above disturb it.
 @scroll:
@@ -185,8 +176,8 @@ nmi:
     sta PPUCTRL
     lda _scroll_x
     sta PPUSCROLL
-    lda #0
-    sta PPUSCROLL       ; vertical scroll: 0 for now
+    lda _scroll_y
+    sta PPUSCROLL
 
 @done:
     inc _frame_count    ; tick

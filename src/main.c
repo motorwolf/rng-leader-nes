@@ -3,8 +3,7 @@
  * For now (Milestone 2, in progress):
  *   D-pad   walk, one square per step; hold to keep walking
  *   Start   make a new map
- * The camera follows left and right; up and down comes next, so for now the
- * player stops at the screen's bottom edge. */
+ * The camera follows the player around the map. */
 
 #include "map.h"
 #include "mmc1.h"
@@ -23,19 +22,17 @@ extern volatile unsigned char frame_count;
  * including in the leftmost 8 pixels (bits 1 and 2). */
 #define MASK_SHOW 0x1E
 
-/* The screen shows 7.5 squares down; the half square at the bottom doesn't
- * count as walkable until the camera follows vertically. */
-#define VIEW_H 7
-
 /* Walking: a step of one square (32 pixels) takes WALK_FRAMES frames,
  * moving WALK_SPEED pixels each frame. */
 #define WALK_FRAMES 16
 #define WALK_SPEED  2
 
-/* The camera keeps the player this many pixels from the screen's left edge
- * (square column 3 of 8), and stops at the map's edges. */
+/* The camera keeps the player this many pixels from the screen's top-left
+ * corner (square column 3 of 8, row 3 of 7.5), and stops at the map's edges.
+ * The screen is 256x240, so it can go as far as the map's size minus that. */
 #define CAMERA_LEAD  96
-#define CAMERA_MAX_X ((MAP_WIDTH - 8) * 32)
+#define CAMERA_MAX_X (MAP_WIDTH * 32 - 256)
+#define CAMERA_MAX_Y (MAP_HEIGHT * 32 - 240)
 
 /* Sleep until the next vblank: the heartbeat every NES game is built on. */
 static void wait_frame(void) {
@@ -45,25 +42,26 @@ static void wait_frame(void) {
     }
 }
 
-/* Where the camera goes for a player whose left edge is at x on the map. */
-static unsigned int camera_for(unsigned int x) {
-    if (x < CAMERA_LEAD) {
+/* Where the camera goes, along one axis, for a player at p on the map. */
+static unsigned int camera_for(unsigned int p, unsigned int max) {
+    if (p < CAMERA_LEAD) {
         return 0;
     }
-    x -= CAMERA_LEAD;
-    return (x > CAMERA_MAX_X) ? CAMERA_MAX_X : x;
+    p -= CAMERA_LEAD;
+    return (p > max) ? max : p;
 }
 
 /* Draw the whole screen for a new map. Drawing must be off while the
  * graphics chip's memory is rewritten, so the screen goes blank for a
  * moment. */
-static void show(unsigned int player_x) {
+static void show(unsigned int player_x, unsigned int player_y) {
     wait_frame();                 /* switch off at the start of a frame, not mid-picture */
     PPU_MASK = 0;
     scroll_pause();
     show_overworld(0);
     scroll_load_terrain();
-    camera_x = camera_for(player_x);
+    camera_x = camera_for(player_x, CAMERA_MAX_X);
+    camera_y = camera_for(player_y, CAMERA_MAX_Y);
     scroll_draw_all();
     scroll_resume();              /* the vblank handler sets the scroll from now on */
 
@@ -76,13 +74,11 @@ void main(void) {
     unsigned char seeded = 0;
     unsigned int frames = 0;      /* 16 bits, so 65,536 possible seeds, not 256 */
 
-    /* The player: which square they're on, and where they're drawn: x on the
-     * map (it can be wider than the screen) and y on the screen, in pixels.
-     * While walking, the drawn position slides toward the next square; the
-     * square changes when the step finishes. */
+    /* The player: which square they're on, and where they're drawn, in
+     * pixels on the map. While walking, the drawn position slides toward the
+     * next square; the square changes when the step finishes. */
     unsigned char square_x = START_X, square_y = START_Y;
-    unsigned int map_x = START_X * 32u;
-    unsigned char screen_y = START_Y << 5;
+    unsigned int map_x = START_X * 32u, map_y = START_Y * 32u;
     unsigned char steps_left = 0;
     signed char dir_x = 0, dir_y = 0;
     unsigned char next_x, next_y;
@@ -94,8 +90,8 @@ void main(void) {
 
     /* A first map from the default seed, until the player presses Start. */
     map_generate();
-    show(map_x);
-    place_player(map_x - camera_x, screen_y);
+    show(map_x, map_y);
+    place_player(map_x - camera_x, map_y - camera_y);
 
     /* The main loop, once per frame. The vblank handler has just written
      * last frame's queued graphics; now prepare the next frame's. */
@@ -120,10 +116,10 @@ void main(void) {
             square_x = START_X;
             square_y = START_Y;
             map_x = START_X * 32u;
-            screen_y = START_Y << 5;
+            map_y = START_Y * 32u;
             steps_left = 0;
-            show(map_x);
-            place_player(map_x - camera_x, screen_y);
+            show(map_x, map_y);
+            place_player(map_x - camera_x, map_y - camera_y);
             continue;
         }
 
@@ -144,10 +140,10 @@ void main(void) {
             if (dir_x | dir_y) {
                 next_x = square_x + dir_x;
                 next_y = square_y + dir_y;
-                /* Stay on the map (and, vertically, on screen). These are
-                 * unsigned, so stepping left or up from 0 wraps around to
-                 * 255, which the same "<" test rejects. */
-                if (next_x < MAP_WIDTH && next_y < VIEW_H) {
+                /* Stay on the map. These are unsigned, so stepping left or up
+                 * from 0 wraps around to 255, which the same "<" test
+                 * rejects. */
+                if (next_x < MAP_WIDTH && next_y < MAP_HEIGHT) {
                     steps_left = WALK_FRAMES;
                 }
             }
@@ -157,9 +153,9 @@ void main(void) {
          * camera along. */
         if (steps_left) {
             map_x += dir_x * WALK_SPEED;
-            screen_y += dir_y * WALK_SPEED;
-            scroll_to(camera_for(map_x));
-            place_player(map_x - camera_x, screen_y);
+            map_y += dir_y * WALK_SPEED;
+            scroll_to(camera_for(map_x, CAMERA_MAX_X), camera_for(map_y, CAMERA_MAX_Y));
+            place_player(map_x - camera_x, map_y - camera_y);
             if (--steps_left == 0) {
                 square_x = next_x;
                 square_y = next_y;

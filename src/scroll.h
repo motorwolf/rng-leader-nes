@@ -3,8 +3,8 @@
 #ifndef SCROLL_H
 #define SCROLL_H
 
-/* The camera's left edge, in pixels from the map's left edge. */
-extern unsigned int camera_x;
+/* The camera's top-left corner, in pixels from the map's top-left corner. */
+extern unsigned int camera_x, camera_y;
 
 /* Copy the terrain's tile and palette tables into RAM, so the streaming code
  * can read them without switching banks. Call after a new map is loaded. */
@@ -17,12 +17,12 @@ void scroll_pause(void);
 /* Let the vblank handler write the queue and set the scroll again. */
 void scroll_resume(void);
 
-/* Draw the whole screen at camera_x. Only while paused, with drawing off. */
+/* Draw the whole screen at the camera. Only while paused, with drawing off. */
 void scroll_draw_all(void);
 
-/* Move the camera to x (at most 8 pixels from where it is). Queues any
- * newly needed column for the vblank handler. Call early in a frame, right
- * after a vblank, so it's done before the next one. */
-void scroll_to(unsigned int x);
+/* Move the camera to (x, y): along one axis at a time, at most 8 pixels.
+ * Queues any newly needed column or row for the vblank handler. Call early
+ * in a frame, right after a vblank, so it's done before the next one. */
+void scroll_to(unsigned int x, unsigned int y);
 
 #endif
