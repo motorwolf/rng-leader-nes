@@ -6,7 +6,6 @@
  * sprite tiles in the second ($1000); PPU_CTRL tells the chip which is which. */
 
 #include "art.h"
-#include "map.h"
 #include "mmc1.h"
 #include "ppu.h"
 #include "screens.h"
@@ -26,38 +25,15 @@ static void hide_sprites(void) {
     } while (i != 0);    /* i wraps from 252 back to 0 after the 64th sprite */
 }
 
-void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam_y) {
-    const unsigned char *squares;
+void show_overworld(unsigned char player) {
     const Sprite *p;
-    unsigned char x, y, square, i;
+    unsigned char i;
 
     mmc1_set_bank(TERRAIN_BANK);
     ppu_set_addr(PPU_TILES);
     ppu_write(terrain.tiles, terrain.tile_count * 16u);
     ppu_set_addr(PPU_PALETTES);
     ppu_write(terrain.palettes, 16);
-
-    /* The nametable, one tile at a time, row by row. Tile (x, y) on screen is
-     * in map square (cam_x + x / 4, cam_y + y / 4), at position (x % 4, y % 4)
-     * inside it. With powers of two, dividing is shifting right and the
-     * remainder is masking off the low bits: x >> 2 and x & 3. Much cheaper
-     * than / and % on a 6502. */
-    squares = terrain.squares;
-    ppu_set_addr(PPU_NAMETABLE0);
-    for (y = 0; y < 30; ++y) {
-        for (x = 0; x < 32; ++x) {
-            square = map[cam_y + (y >> 2)][cam_x + (x >> 2)];
-            PPU_DATA = squares[(square << 4) | ((y & 3) << 2) | (x & 3)];
-        }
-    }
-
-    /* A square is exactly one 32x32 attribute block, so each square's
-     * palettes come as one ready-made byte. */
-    for (y = 0; y < 8; ++y) {
-        for (x = 0; x < 8; ++x) {
-            PPU_DATA = terrain.square_attributes[map[cam_y + y][cam_x + x]];
-        }
-    }
 
     /* The player's tiles, palettes, and the tile and palette of each of its
      * 16 sprites. Their positions are set separately, by place_player(). */

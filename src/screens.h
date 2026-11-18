@@ -6,10 +6,10 @@
 /* Both must only run while drawing is switched off: they rewrite most of
  * the graphics chip's memory. */
 
-/* A screen of the overworld map (map.h), with its top-left corner at map
- * square (cam_x, cam_y). Also loads the player's sprites, hidden until
- * place_player() puts them somewhere. */
-void show_overworld(unsigned char player, unsigned char cam_x, unsigned char cam_y);
+/* Load the overworld's terrain tiles and palettes, and the player's sprites
+ * (hidden until place_player() puts them somewhere). The map itself is drawn
+ * by scroll.c. */
+void show_overworld(unsigned char player);
 
 /* Put the player's top-left corner at (x, y) on screen, in pixels. Only
  * changes the sprite list in RAM, which the vblank handler copies to the
