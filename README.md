@@ -14,17 +14,19 @@ system, no database and no network.
 ## Why
 
 To learn how games were made under real hardware limits, and how the decisions of a
-modern web app (a database, floating-point maths, `Math.random()`, a server) translate to
+modern web app (a database, floating-point math, `Math.random()`, a server) translate to
 a machine that has none of those things.
 
 ## Building
 
 Written in C with the [cc65](https://cc65.github.io/) toolchain.
 
-Requirements: cc65 (tested with 2.18), make, and Python 3 for the local server.
+Requirements: cc65 (tested with 2.18), make, and Python 3, which converts the art
+at build time and runs the local server.
 
 ```bash
 brew install cc65     # macOS; on Debian/Ubuntu: apt install cc65
+python3 -m venv .venv && .venv/bin/pip install -r tools/requirements.txt   # once
 make                  # builds build/rng-leader.nes
 make serve            # then open http://localhost:8000/play/
 ```
@@ -44,5 +46,10 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/reset_stubs.s` | a small reset routine copied into every ROM bank |
 | `src/mmc1.c` | MMC1 mapper: bank switching |
 | `src/ppu.c` | sending tiles, maps and palettes to the graphics chip |
-| `src/main.c` | the game |
+| `src/pad.c` | reading the controller |
+| `src/screens.c` | drawing the overworld and battle screens from the converted art |
+| `src/main.c` | the game; for now an art viewer (Start switches screens, Left/Right picks the player or enemy) |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
+| `art/` | the original PNGs |
+| `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |
+| `tools/measure_scale.py` | finds the pixel scale of enlarged pixel art |

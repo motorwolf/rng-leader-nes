@@ -13,10 +13,12 @@
 #define PPU_DATA   (*(volatile unsigned char *)0x2007)  /* the mailbox data: one byte per write */
 
 /* Where things live in the PPU's own address space. */
-#define PPU_TILES      0x0000   /* tile pictures: our 8 KB of graphics RAM */
+#define PPU_TILES      0x0000   /* tile pictures for the background (256 tiles) */
+#define PPU_SPRITE_TILES 0x1000 /* tile pictures for sprites (256 more) */
 #define PPU_NAMETABLE0 0x2000   /* the first screen-sized map of tile numbers */
 #define PPU_ATTRIBUTES 0x23C0   /* palette choices for that map, per 16x16 pixel block */
-#define PPU_PALETTES   0x3F00   /* 8 palettes of 4 colours: 4 for background, 4 for sprites */
+#define PPU_PALETTES   0x3F00   /* 8 palettes of 4 colors: 4 for background, */
+#define PPU_SPRITE_PALETTES 0x3F10 /* then 4 for sprites */
 
 /* Everything below must only run while drawing is switched off, or inside
  * vblank. Otherwise it disturbs the PPU mid-frame and the picture glitches. */
