@@ -16,9 +16,17 @@
 #define PPU_TILES      0x0000   /* tile pictures for the background (256 tiles) */
 #define PPU_SPRITE_TILES 0x1000 /* tile pictures for sprites (256 more) */
 #define PPU_NAMETABLE0 0x2000   /* the first screen-sized map of tile numbers */
+#define PPU_NAMETABLE1 0x2400   /* the second, to its right */
 #define PPU_ATTRIBUTES 0x23C0   /* palette choices for that map, per 16x16 pixel block */
 #define PPU_PALETTES   0x3F00   /* 8 palettes of 4 colors: 4 for background, */
 #define PPU_SPRITE_PALETTES 0x3F10 /* then 4 for sprites */
+
+/* PPU_CTRL settings: bit 7 = vblank interrupt on, bit 3 = sprite tiles come
+ * from the second pattern table ($1000); background tiles from the first. */
+#define CTRL_SETTINGS 0x88
+/* Add to CTRL_SETTINGS to make each PPU_DATA write move down a row (+32)
+ * instead of right (+1): for writing a column of tiles in one run. */
+#define CTRL_DOWN 0x04
 
 /* Everything below must only run while drawing is switched off, or inside
  * vblank. Otherwise it disturbs the PPU mid-frame and the picture glitches. */

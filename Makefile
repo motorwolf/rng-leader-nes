@@ -30,7 +30,7 @@ BUILD := build
 ROM   := $(BUILD)/$(NAME).nes
 
 # The source files. Adding a new .c or .s file to src/ means adding its name here.
-C_SOURCES   := main mmc1 pad ppu screens
+C_SOURCES   := main map mmc1 pad ppu rng screens scroll
 ASM_SOURCES := header startup reset_stubs
 
 # Every source file becomes one object file in build/, plus the generated art.
@@ -91,13 +91,16 @@ $(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
 
 # Header dependencies: if a header (the "menu") changes, every C file that
 # includes it must be recompiled, even though its own .c is unchanged.
-# The C files that include art.h also need it generated first.
+# screens.c and scroll.c include art.h, so they need it generated first.
 # -I build lets them find it there.
-$(BUILD)/main.s:    src/mmc1.h src/pad.h src/ppu.h src/screens.h $(BUILD)/art.h
+$(BUILD)/main.s:    src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h
+$(BUILD)/map.s:     src/map.h src/rng.h
 $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h
 $(BUILD)/ppu.s:     src/ppu.h
+$(BUILD)/rng.s:     src/rng.h
 $(BUILD)/screens.s: src/mmc1.h src/ppu.h src/screens.h $(BUILD)/art.h
+$(BUILD)/scroll.s:  src/map.h src/mmc1.h src/ppu.h src/scroll.h $(BUILD)/art.h
 
 $(BUILD):
 	mkdir -p $(BUILD)
