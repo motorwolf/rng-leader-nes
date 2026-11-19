@@ -42,13 +42,16 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | Path | What it is |
 |---|---|
 | `src/header.s` | iNES header: tells emulators the cartridge type |
-| `src/startup.s` | power-on setup and the vblank interrupt handler |
+| `src/startup.s` | power-on setup and the vblank interrupt handler, which copies queued tiles to the graphics chip |
 | `src/reset_stubs.s` | a small reset routine copied into every ROM bank |
 | `src/mmc1.c` | MMC1 mapper: bank switching |
 | `src/ppu.c` | sending tiles, maps and palettes to the graphics chip |
 | `src/pad.c` | reading the controller |
+| `src/rng.c` | random numbers (a 16-bit LFSR) |
+| `src/map.c` | generating the overworld map |
+| `src/scroll.c` | the scrolling camera: streams map columns and rows into the nametables |
 | `src/screens.c` | drawing the overworld and battle screens from the converted art |
-| `src/main.c` | the game; for now an art viewer (Start switches screens, Left/Right picks the player or enemy) |
+| `src/main.c` | the game; for now the overworld (D-pad walks, Start makes a new map) |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
 | `art/` | the original PNGs |
 | `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |
