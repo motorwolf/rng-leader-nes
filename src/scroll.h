@@ -17,6 +17,11 @@ void scroll_pause(void);
 /* Let the vblank handler write the queue and set the scroll again. */
 void scroll_resume(void);
 
+/* Point the scroll at the top-left of the first nametable, for screens that
+ * don't scroll (the battle screen). The overworld's next scroll_draw_all()
+ * points it back at the camera. */
+void scroll_home(void);
+
 /* Draw the whole screen at the camera. Only while paused, with drawing off. */
 void scroll_draw_all(void);
 

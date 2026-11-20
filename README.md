@@ -51,7 +51,7 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/map.c` | generating the overworld map |
 | `src/scroll.c` | the scrolling camera: streams map columns and rows into the nametables |
 | `src/screens.c` | drawing the overworld and battle screens from the converted art |
-| `src/main.c` | the game; for now the overworld (D-pad walks, Start makes a new map) |
+| `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start makes a new map, A ends a fight) |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
 | `art/` | the original PNGs |
 | `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |
