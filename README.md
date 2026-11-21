@@ -52,6 +52,7 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/scroll.c` | the scrolling camera: streams map columns and rows into the nametables |
 | `src/screens.c` | drawing the overworld and battle screens from the converted art |
 | `src/main.c` | the game; for now the overworld (D-pad walks, Start makes a new map) |
+| `docs/milestones.md` | the write-up of each finished milestone |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
 | `art/` | the original PNGs |
 | `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |
