@@ -623,6 +623,12 @@ typedef struct {
     const unsigned char *glyphs;             /* count x 8 bytes */
 } Font;
 
+/* A set of ready-made tiles. */
+typedef struct {
+    unsigned char count;
+    const unsigned char *tiles;              /* count x 16 bytes */
+} Tiles;
+
 """
 
 
@@ -727,6 +733,44 @@ def convert_font(path):
                 row = (row << 1) | (value == 255)
             glyphs.append(row)
     return glyphs
+
+
+# --- The battle screen's text boxes -----------------------------------------
+#
+# Boxes with a line around them, inset 3 pixels from the tile's edge, in the
+# backdrop's own colors (no palette is free for them). The 8 tiles, in this
+# order: top-left, top, top-right, left, right, bottom-left, bottom,
+# bottom-right. They go just before the font.
+
+BOX_TILES = 8
+BOX_TILE = FONT_TILE - BOX_TILES          # 153
+BOX_LINE = (3, 4)                         # which pixels of a tile the line is on
+
+
+def box_tiles(fill, line):
+    """The 8 box tiles, as 16 bytes each: color slot `line` for the line,
+    `fill` everywhere else."""
+    def tile(top, bottom, left, right):
+        rows = []
+        for y in range(8):
+            row = []
+            for x in range(8):
+                # Inside the box's outline: past the line on each side that has one.
+                inside = ((not top or y >= BOX_LINE[0]) and (not bottom or y <= BOX_LINE[1]) and
+                          (not left or x >= BOX_LINE[0]) and (not right or x <= BOX_LINE[1]))
+                on_line = inside and ((top and y in BOX_LINE) or (bottom and y in BOX_LINE) or
+                                      (left and x in BOX_LINE) or (right and x in BOX_LINE))
+                row.append(line if on_line else fill)
+            rows.append(row)
+        return encode_tile(rows)
+    sides = [(1, 0, 1, 0), (1, 0, 0, 0), (1, 0, 0, 1), (0, 0, 1, 0),
+             (0, 0, 0, 1), (0, 1, 1, 0), (0, 1, 0, 0), (0, 1, 0, 1)]
+    return [b for t in sides for b in tile(*t)]
+
+
+# The rows the boxes cover, in 8x8 tiles. They must stay clear of the enemy's
+# area (rows 10-25), so they're in the backdrop's palette. Checked below.
+BOX_ROWS = list(range(1, 6)) + list(range(26, 30))
 
 
 def font_preview(glyphs, path):
@@ -835,8 +879,10 @@ if __name__ == "__main__":
         area = [tiles[ty * 32 + tx] for ty in range(ENEMY_Y // 8, ENEMY_Y // 8 + 16)
                 for tx in range(ENEMY_X // 8, ENEMY_X // 8 + 16)]
         new, numbers = unique_tiles(area, known)
-        if len(backdrop_unique) + len(new) > FONT_TILE:
+        if len(backdrop_unique) + len(new) > BOX_TILE:
             raise SystemExit(f"enemy {e}: too many tiles to leave room for the font")
+        if any(choice[(row // 2) * 16 + x] != 0 for row in BOX_ROWS for x in range(16)):
+            raise SystemExit(f"enemy {e}: a text box's rows aren't all in the backdrop's palette")
         name = f"battle{e}"
         battles.append((out.item("Battle", name, [
             len(new), ("tiles", [b for t in new for b in t]), ("tile_map", numbers),
@@ -867,6 +913,17 @@ if __name__ == "__main__":
                       f"#define FONT_TILE {FONT_TILE}\n"
                       "extern const Font font;\n")
     print(f"font: {FONT_COUNT} characters, tiles {FONT_TILE}-255")
+
+    # --- Text boxes: the backdrop's dark purple, a line of its orange, and the
+    # font in its pink. These are color slots (1-3) in its palette, palette 0. ---
+    fill, ink, line = (backdrop_palette.index(c) + 1 for c in (0x04, 0x25, 0x27))
+    bank = out.item("Tiles", "box", [BOX_TILES, ("tiles", box_tiles(fill, line))])
+    out.header.append(f"\n/* The battle screen's text boxes (see convert.py). */\n"
+                      f"#define BOX_BANK {bank}\n"
+                      f"#define BOX_TILE {BOX_TILE}\n"
+                      f"#define BOX_FILL {fill}\n"
+                      f"#define BOX_INK  {ink}\n"
+                      "extern const Tiles box;\n")
 
     out.write("build/art.c", "build/art.h")
     print("previews: build/preview_{terrain,players,battles}.png (original above NES), "

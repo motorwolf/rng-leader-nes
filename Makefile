@@ -99,7 +99,7 @@ $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h
 $(BUILD)/ppu.s:     src/ppu.h
 $(BUILD)/rng.s:     src/rng.h
-$(BUILD)/screens.s: src/mmc1.h src/ppu.h src/screens.h $(BUILD)/art.h
+$(BUILD)/screens.s: src/mmc1.h src/ppu.h src/screens.h src/text.h $(BUILD)/art.h
 $(BUILD)/scroll.s:  src/map.h src/mmc1.h src/ppu.h src/scroll.h $(BUILD)/art.h
 $(BUILD)/text.s:    src/mmc1.h src/ppu.h src/text.h $(BUILD)/art.h
 

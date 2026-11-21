@@ -94,8 +94,9 @@ static void fight(unsigned char enemy) {
     PPU_MASK = 0;
     scroll_pause();
     show_battle(enemy);
-    text_load(3, 0);              /* test: colors and layout come next */
-    text_print(2, 27, "A fight! Press A to go back.");
+    text_print(1, LOG_Y, "A fight!");          /* test: the log and menu come next */
+    text_print(1, LOG_Y + 2, "The death blow has been");
+    text_print(1, MENU_Y, ">ATTACK!  RUN AWAY  HP 20/20");
     scroll_home();                /* the battle screen doesn't scroll */
     scroll_resume();
     wait_frame();

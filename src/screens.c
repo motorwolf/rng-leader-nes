@@ -9,6 +9,7 @@
 #include "mmc1.h"
 #include "ppu.h"
 #include "screens.h"
+#include "text.h"
 
 /* The sprite list (OAM, "object attribute memory"): 64 sprites x 4 bytes, at
  * $0200 in RAM. The vblank handler copies it to the graphics chip every frame.
@@ -62,6 +63,30 @@ void place_player(unsigned char x, unsigned char y) {
     }
 }
 
+/* Draw a text box with its corners at tiles (left, top) and (right, bottom),
+ * on the first nametable. If `open`, the bottom edge is left off, for a box
+ * that runs off the bottom of the screen. Its inside is the font's space,
+ * which is all the box's fill color. */
+static void draw_box(unsigned char left, unsigned char top,
+                     unsigned char right, unsigned char bottom, unsigned char open) {
+    unsigned char x, y, first, middle, last;
+    for (y = top; y <= bottom; ++y) {
+        if (y == top) {
+            first = BOX_TILE + 0; middle = BOX_TILE + 1; last = BOX_TILE + 2;
+        } else if (y == bottom && !open) {
+            first = BOX_TILE + 5; middle = BOX_TILE + 6; last = BOX_TILE + 7;
+        } else {
+            first = BOX_TILE + 3; middle = FONT_TILE;    last = BOX_TILE + 4;
+        }
+        ppu_set_addr(PPU_NAMETABLE0 + y * 32u + left);
+        PPU_DATA = first;
+        for (x = left + 1; x < right; ++x) {
+            PPU_DATA = middle;
+        }
+        PPU_DATA = last;
+    }
+}
+
 void show_battle(unsigned char enemy) {
     const Battle *b;
     const unsigned char *map;
@@ -94,4 +119,13 @@ void show_battle(unsigned char enemy) {
     ppu_write(b->attributes, 64);
     ppu_set_addr(PPU_PALETTES);
     ppu_write(b->palettes, 16);
+
+    /* The text boxes: the log across the top, the menu strip at the bottom,
+     * in the backdrop's colors (see convert.py). */
+    mmc1_set_bank(BOX_BANK);
+    ppu_set_addr(PPU_TILES + BOX_TILE * 16u);
+    ppu_write(box.tiles, box.count * 16u);
+    text_load(BOX_INK, BOX_FILL);
+    draw_box(0, LOG_Y - 1, 31, LOG_Y + LOG_LINES, 0);
+    draw_box(0, MENU_Y - 1, 31, 29, 1);
 }
