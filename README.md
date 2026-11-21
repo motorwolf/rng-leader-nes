@@ -50,6 +50,7 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/rng.c` | random numbers (a 16-bit LFSR) |
 | `src/map.c` | generating the overworld map |
 | `src/scroll.c` | the scrolling camera: streams map columns and rows into the nametables |
+| `src/vram.c` | the vblank queue: graphics writes made while the screen is on |
 | `src/text.c` | drawing text with the font |
 | `src/screens.c` | drawing the overworld and battle screens from the converted art |
 | `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start makes a new map, A ends a fight) |

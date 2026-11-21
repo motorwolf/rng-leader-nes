@@ -13,9 +13,9 @@
  *
  * Writing to the graphics chip is only safe during vblank, which is short
  * (about 2,270 CPU cycles), so the work is split in two: scroll_to()
- * prepares the new tiles during the frame, into a queue, and the vblank
- * handler (nmi in startup.s, in assembly for speed) copies them at the next
- * vblank.
+ * prepares the new tiles during the frame, into a queue (vram.c), and the
+ * vblank handler (nmi in startup.s, in assembly for speed) copies them at
+ * the next vblank.
  *
  * Two wrinkles, both from the buffer being 30 rows tall:
  *
@@ -37,18 +37,15 @@
 #include "mmc1.h"
 #include "ppu.h"
 #include "scroll.h"
+#include "vram.h"
 
 #define MAP_TILES_X (MAP_WIDTH * 4)     /* 112 */
 #define BUFFER_ROWS 30
 
 unsigned int camera_x, camera_y;
 
-/* The vblank queue, in startup.s. */
-extern unsigned char ppu_updates_on, scroll_ctrl, scroll_x, scroll_y;
-extern unsigned char vram_buffer[96], vram_ready;
-
-/* How much of vram_buffer is filled. */
-static unsigned char queued;
+/* Where the vblank handler sets the scroll, in startup.s. */
+extern unsigned char scroll_ctrl, scroll_x, scroll_y;
 
 /* The terrain's tables, copied from its bank (see art.h). */
 static unsigned char squares[64];       /* 16 tile numbers per square */
@@ -65,44 +62,6 @@ void scroll_load_terrain(void) {
     for (i = 0; i < 4; ++i) {
         palette_of[i] = terrain.square_attributes[i] & 3;
     }
-}
-
-/* --- The queue ------------------------------------------------------------ */
-
-/* Start a run of `count` bytes at graphics address `addr`; `down` = write
- * down a column instead of across a row. The bytes follow with add(). */
-static void run(unsigned int addr, unsigned char count, unsigned char down) {
-    vram_buffer[queued++] = down ? (count | 0x80) : count;
-    vram_buffer[queued++] = addr >> 8;
-    vram_buffer[queued++] = (unsigned char)addr;
-}
-
-static void add(unsigned char value) {
-    vram_buffer[queued++] = value;
-}
-
-/* With the vblank handler on, mark the queue ready for it. With it paused
- * (screen off), write it right away, from C. Either way, start afresh. */
-static void send(void) {
-    unsigned char i, count, header;
-
-    vram_buffer[queued] = 0;
-    if (ppu_updates_on) {
-        vram_ready = 1;
-    } else {
-        i = 0;
-        while ((header = vram_buffer[i]) != 0) {
-            PPU_CTRL = (header & 0x80) ? (CTRL_SETTINGS | CTRL_DOWN) : CTRL_SETTINGS;
-            ppu_set_addr((vram_buffer[i + 1] << 8) | vram_buffer[i + 2]);
-            count = header & 0x7F;
-            i += 3;
-            while (count--) {
-                PPU_DATA = vram_buffer[i++];
-            }
-        }
-        PPU_CTRL = CTRL_SETTINGS;
-    }
-    queued = 0;
 }
 
 /* --- Where map tiles go in the buffer -------------------------------------- */
@@ -160,20 +119,20 @@ static void queue_column(unsigned char col, unsigned char top, unsigned char pal
     unsigned char square_x = col >> 2;
     unsigned int base = nametable_of(slot);
 
-    run(base + (slot & 31), BUFFER_ROWS, 1);
+    vram_run(base + (slot & 31), BUFFER_ROWS, 1);
     for (r = 0; r < BUFFER_ROWS; ++r) {
-        add(tile_at(col, row_in(r, top)));
+        vram_add(tile_at(col, row_in(r, top)));
     }
 
     if ((col & 3) == 0 || palettes) {
         /* The attribute table is 8x8 bytes at the end of each nametable; a
          * column of it is 8 bytes, 8 apart, so each gets its own run. */
         for (r = 0; r < 8; ++r) {
-            run(base + 0x3C0 + (r << 3) + (square_x & 7), 1, 0);
-            add(attribute_at(square_x, r, top));
+            vram_run(base + 0x3C0 + (r << 3) + (square_x & 7), 1, 0);
+            vram_add(attribute_at(square_x, r, top));
         }
     }
-    send();
+    vram_send();
 }
 
 /* Queue map tile row `row` across the 33 columns from `left`, with the
@@ -190,17 +149,17 @@ static void queue_row(unsigned char row, unsigned char left, unsigned char top,
      * the start of the other one. */
     slot = left & 63;
     first = 32 - (slot & 31);
-    run(nametable_of(slot) + (r << 5) + (slot & 31), first, 0);
+    vram_run(nametable_of(slot) + (r << 5) + (slot & 31), first, 0);
     for (i = 0; i < first; ++i) {
-        add(tile_at(col++, row));
+        vram_add(tile_at(col++, row));
     }
-    run(nametable_of(slot ^ 32) + (r << 5), 33 - first, 0);
+    vram_run(nametable_of(slot ^ 32) + (r << 5), 33 - first, 0);
     for (i = first; i < 33; ++i) {
-        add(tile_at(col++, row));
+        vram_add(tile_at(col++, row));
     }
 
     if (!palettes) {
-        send();
+        vram_send();
         return;
     }
 
@@ -209,15 +168,15 @@ static void queue_row(unsigned char row, unsigned char left, unsigned char top,
     slot = (block << 2) & 63;
     ar = r >> 2;
     first = 8 - (block & 7);
-    run(nametable_of(slot) + 0x3C0 + (ar << 3) + (block & 7), first, 0);
+    vram_run(nametable_of(slot) + 0x3C0 + (ar << 3) + (block & 7), first, 0);
     for (i = 0; i < first; ++i) {
-        add(attribute_at(block + i, ar, top));
+        vram_add(attribute_at(block + i, ar, top));
     }
-    run(nametable_of(slot ^ 32) + 0x3C0 + (ar << 3), 9 - first, 0);
+    vram_run(nametable_of(slot ^ 32) + 0x3C0 + (ar << 3), 9 - first, 0);
     for (i = first; i < 9; ++i) {
-        add(attribute_at(block + i, ar, top));
+        vram_add(attribute_at(block + i, ar, top));
     }
-    send();
+    vram_send();
 }
 
 /* --- The camera ----------------------------------------------------------- */
@@ -240,7 +199,7 @@ void scroll_draw_all(void) {
     unsigned char left = camera_x >> 3;
 
     /* 33 columns: when the camera isn't on a tile boundary, part of a 33rd
-     * shows at the right edge. With the vblank handler paused, send() writes
+     * shows at the right edge. With the vblank queue paused, vram_send() writes
      * each one straight away. */
     for (col = left; col != (unsigned char)(left + 33); ++col) {
         queue_column(col, camera_y >> 3, col == left);
@@ -289,14 +248,6 @@ void scroll_to(unsigned int x, unsigned int y) {
     camera_x = x;
     camera_y = y;
     set_scroll();
-}
-
-void scroll_pause(void) {
-    ppu_updates_on = 0;
-}
-
-void scroll_resume(void) {
-    ppu_updates_on = 1;
 }
 
 void scroll_home(void) {

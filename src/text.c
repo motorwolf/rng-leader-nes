@@ -16,6 +16,7 @@
 #include "mmc1.h"
 #include "ppu.h"
 #include "text.h"
+#include "vram.h"
 
 void text_load(unsigned char ink, unsigned char paper) {
     const unsigned char *glyph;
@@ -36,9 +37,14 @@ void text_load(unsigned char ink, unsigned char paper) {
 }
 
 void text_print(unsigned char x, unsigned char y, const char *text) {
-    ppu_set_addr(PPU_NAMETABLE0 + y * 32u + x);
+    unsigned char length = 0;
+    while (text[length]) {
+        ++length;
+    }
+    vram_run(PPU_NAMETABLE0 + y * 32u + x, length, 0);
     while (*text) {
         /* The font starts at the space, character code 32. */
-        PPU_DATA = FONT_TILE + (unsigned char)(*text++ - ' ');
+        vram_add(FONT_TILE + (unsigned char)(*text++ - ' '));
     }
+    vram_send();
 }

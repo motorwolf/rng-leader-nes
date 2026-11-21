@@ -10,8 +10,9 @@
  * while drawing is switched off: it writes 1,520 bytes. */
 void text_load(unsigned char ink, unsigned char paper);
 
-/* Write `text` on the first nametable, starting at tile column x, row y.
- * Only while drawing is switched off, for now. */
+/* Write `text` on the first nametable, starting at tile column x, row y,
+ * through the vblank queue (vram.h), so it's safe with the screen on; it
+ * appears at the next vblank. At most 93 characters. */
 void text_print(unsigned char x, unsigned char y, const char *text);
 
 #endif

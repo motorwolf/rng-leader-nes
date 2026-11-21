@@ -17,6 +17,7 @@
 #include "screens.h"
 #include "scroll.h"
 #include "text.h"
+#include "vram.h"
 
 /* Counts frames; startup.s adds one every vblank. "volatile" tells the
  * compiler it can change behind the code's back, so it must re-read it each
@@ -73,13 +74,13 @@ static unsigned int camera_for(unsigned int p, unsigned int max) {
 static void show(unsigned int player_x, unsigned int player_y) {
     wait_frame();                 /* switch off at the start of a frame, not mid-picture */
     PPU_MASK = 0;
-    scroll_pause();
+    vram_pause();
     show_overworld(0);
     scroll_load_terrain();
     camera_x = camera_for(player_x, CAMERA_MAX_X);
     camera_y = camera_for(player_y, CAMERA_MAX_Y);
     scroll_draw_all();
-    scroll_resume();              /* the vblank handler sets the scroll from now on */
+    vram_resume();              /* the vblank handler sets the scroll from now on */
 
     wait_frame();                 /* switch on at the start of a frame too */
     PPU_MASK = MASK_SHOW;
@@ -92,13 +93,13 @@ static void fight(unsigned char enemy) {
 
     wait_frame();
     PPU_MASK = 0;
-    scroll_pause();
+    vram_pause();
     show_battle(enemy);
     text_print(1, LOG_Y, "A fight!");          /* test: the log and menu come next */
     text_print(1, LOG_Y + 2, "The death blow has been");
     text_print(1, MENU_Y, ">ATTACK!  RUN AWAY  HP 20/20");
     scroll_home();                /* the battle screen doesn't scroll */
-    scroll_resume();
+    vram_resume();
     wait_frame();
     PPU_MASK = MASK_SHOW;
 
