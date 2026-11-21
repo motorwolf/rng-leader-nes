@@ -91,9 +91,9 @@ $(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
 
 # Header dependencies: if a header (the "menu") changes, every C file that
 # includes it must be recompiled, even though its own .c is unchanged.
-# screens.c and scroll.c include art.h, so they need it generated first.
+# main.c, screens.c and scroll.c include art.h, so they need it generated first.
 # -I build lets them find it there.
-$(BUILD)/main.s:    src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h
+$(BUILD)/main.s:    $(BUILD)/art.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h
 $(BUILD)/map.s:     src/map.h src/rng.h
 $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h

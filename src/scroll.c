@@ -298,3 +298,9 @@ void scroll_pause(void) {
 void scroll_resume(void) {
     ppu_updates_on = 1;
 }
+
+void scroll_home(void) {
+    scroll_ctrl = CTRL_SETTINGS;
+    scroll_x = 0;
+    scroll_y = 0;
+}

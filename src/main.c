@@ -1,9 +1,13 @@
 /* main.c - main(): where the C part of the game begins.
  *
- * For now (Milestone 2, in progress):
+ * For now (Milestone 3, in progress):
  *   D-pad   walk, one square per step; hold to keep walking
  *   Start   make a new map
- * The camera follows the player around the map. */
+ *   A       end a fight (until fights are real, in Milestone 4)
+ * The camera follows the player around the map, and random fights happen
+ * along the way. */
+
+#include "art.h"
 
 #include "map.h"
 #include "mmc1.h"
@@ -33,6 +37,17 @@ extern volatile unsigned char frame_count;
 #define CAMERA_LEAD  96
 #define CAMERA_MAX_X (MAP_WIDTH * 32 - 256)
 #define CAMERA_MAX_Y (MAP_HEIGHT * 32 - 240)
+
+/* Random fights: after each step, a 26 in 256 chance (about 10%, as in the
+ * original). Never on the castle square, which will heal the player, or on
+ * the item's square, which will have the boss (both Milestone 6). */
+#define FIGHT_CHANCE 26
+
+/* The battle art is in the order of the original's enemy list. Number 0 is
+ * the boss; random fights pick from the rest. (The original only picked
+ * level 1 enemies, which left out the Squash Bug, the one level 10 enemy.
+ * Levels never got used, so here it's back in.) */
+#define BOSS 0
 
 /* Sleep until the next vblank: the heartbeat every NES game is built on. */
 static void wait_frame(void) {
@@ -67,6 +82,33 @@ static void show(unsigned int player_x, unsigned int player_y) {
 
     wait_frame();                 /* switch on at the start of a frame too */
     PPU_MASK = MASK_SHOW;
+}
+
+/* A fight with the given enemy. For now just the battle screen, until A is
+ * pressed; the fight itself is Milestone 4. */
+static void fight(unsigned char enemy) {
+    unsigned char buttons, previous;
+
+    wait_frame();
+    PPU_MASK = 0;
+    scroll_pause();
+    show_battle(enemy);
+    scroll_home();                /* the battle screen doesn't scroll */
+    scroll_resume();
+    wait_frame();
+    PPU_MASK = MASK_SHOW;
+
+    /* A has to be pressed during the fight, not just still held from
+     * before. */
+    previous = pad_read();
+    for (;;) {
+        wait_frame();
+        buttons = pad_read();
+        if (buttons & ~previous & PAD_A) {
+            return;
+        }
+        previous = buttons;
+    }
 }
 
 void main(void) {
@@ -159,6 +201,14 @@ void main(void) {
             if (--steps_left == 0) {
                 square_x = next_x;
                 square_y = next_y;
+
+                if (!(square_x == START_X && square_y == START_Y) &&
+                    !(square_x == item_x && square_y == item_y) &&
+                    rng_byte() < FIGHT_CHANCE) {
+                    fight(BOSS + 1 + rng_below(ENEMY_COUNT - 1));
+                    show(map_x, map_y);   /* back to the overworld, as it was */
+                    place_player(map_x - camera_x, map_y - camera_y);
+                }
             }
         }
     }
