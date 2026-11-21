@@ -16,6 +16,7 @@
 #include "rng.h"
 #include "screens.h"
 #include "scroll.h"
+#include "text.h"
 
 /* Counts frames; startup.s adds one every vblank. "volatile" tells the
  * compiler it can change behind the code's back, so it must re-read it each
@@ -93,6 +94,8 @@ static void fight(unsigned char enemy) {
     PPU_MASK = 0;
     scroll_pause();
     show_battle(enemy);
+    text_load(3, 0);              /* test: colors and layout come next */
+    text_print(2, 27, "A fight! Press A to go back.");
     scroll_home();                /* the battle screen doesn't scroll */
     scroll_resume();
     wait_frame();

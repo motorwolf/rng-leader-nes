@@ -21,7 +21,7 @@ import random
 from collections import Counter
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 # --- The NES colors ---------------------------------------------------------
 #
@@ -614,6 +614,15 @@ typedef struct {
     const unsigned char *palettes;           /* 16 bytes: 4 sprite palettes */
 } Sprite;
 
+/* The font: one 8x8 character for each printable ASCII code, 1 bit per pixel
+ * (8 bytes, one per row, leftmost pixel in bit 7). text.c turns them into
+ * tiles when loading, in whichever two colors are wanted. */
+typedef struct {
+    unsigned char first;                     /* the first character's code */
+    unsigned char count;
+    const unsigned char *glyphs;             /* count x 8 bytes */
+} Font;
+
 """
 
 
@@ -678,6 +687,57 @@ class Output:
         Path(h_path).write_text("".join(self.header) + "\n#endif\n")
         print(f"wrote {c_path} and {h_path}: {len(self.banks)} bank(s), "
               f"{BANK_ROOM - self.room} bytes in the last")
+
+
+# --- The font ----------------------------------------------------------------
+#
+# The original uses Press Start 2P, a font drawn on an 8x8 pixel grid, so at
+# 8 px each character lands exactly on one NES tile, with nothing to redraw.
+# (It's under the SIL Open Font License, art/OFL.txt, which reserves its name
+# for the unmodified font, so the converted version here doesn't use it.)
+#
+# The characters go at the end of the background tiles, after anything the
+# screens use, so text can be shown on any screen.
+
+FONT_FIRST, FONT_LAST = 32, 126           # printable ASCII: space to ~
+FONT_COUNT = FONT_LAST - FONT_FIRST + 1   # 95
+FONT_TILE = 256 - FONT_COUNT              # 161: the space's tile number
+
+
+def convert_font(path):
+    """Draw each character and return its 8 rows as bytes, leftmost pixel in
+    bit 7. Stops if a character doesn't fit its 8x8 tile exactly."""
+    font = ImageFont.truetype(path, 8)
+    glyphs = []
+    for code in range(FONT_FIRST, FONT_LAST + 1):
+        char = chr(code)
+        if font.getlength(char) != 8:
+            raise SystemExit(f"font: {char!r} isn't 8 pixels wide")
+        left, top, right, bottom = font.getbbox(char)
+        if left < 0 or top < 0 or right > 8 or bottom > 8:
+            raise SystemExit(f"font: {char!r} spills outside its 8x8 tile")
+        image = Image.new("L", (8, 8), 0)
+        ImageDraw.Draw(image).text((0, 0), char, font=font, fill=255)
+        for y in range(8):
+            row = 0
+            for x in range(8):
+                value = image.getpixel((x, y))
+                if value not in (0, 255):
+                    raise SystemExit(f"font: {char!r} has a blurred pixel")
+                row = (row << 1) | (value == 255)
+            glyphs.append(row)
+    return glyphs
+
+
+def font_preview(glyphs, path):
+    """All the characters in rows of 16, enlarged 4x."""
+    image = Image.new("RGB", (16 * 8, 6 * 8), (0, 0, 0))
+    for i in range(FONT_COUNT):
+        for y in range(8):
+            for x in range(8):
+                if glyphs[i * 8 + y] & (0x80 >> x):
+                    image.putpixel(((i % 16) * 8 + x, (i // 16) * 8 + y), (0, 255, 255))
+    image.resize((512, 192), Image.NEAREST).save(path)
 
 
 def render_sprite(palettes, choice, tiles, backdrop):
@@ -775,8 +835,8 @@ if __name__ == "__main__":
         area = [tiles[ty * 32 + tx] for ty in range(ENEMY_Y // 8, ENEMY_Y // 8 + 16)
                 for tx in range(ENEMY_X // 8, ENEMY_X // 8 + 16)]
         new, numbers = unique_tiles(area, known)
-        if len(backdrop_unique) + len(new) > 256:
-            raise SystemExit(f"enemy {e}: more than 256 background tiles")
+        if len(backdrop_unique) + len(new) > FONT_TILE:
+            raise SystemExit(f"enemy {e}: too many tiles to leave room for the font")
         name = f"battle{e}"
         battles.append((out.item("Battle", name, [
             len(new), ("tiles", [b for t in new for b in t]), ("tile_map", numbers),
@@ -798,5 +858,16 @@ if __name__ == "__main__":
     out.header.append(f"\n#define ENEMY_COUNT {len(battles)}\n")
     out.table("Battle", "battles", battles)
 
+    # --- The font ---
+    glyphs = convert_font("art/PressStart2P-Regular.ttf")
+    font_preview(glyphs, "build/preview_font.png")
+    bank = out.item("Font", "font", [FONT_FIRST, FONT_COUNT, ("glyphs", glyphs)])
+    out.header.append(f"\n#define FONT_BANK {bank}\n"
+                      f"/* The tile number of the font's first character (the space). */\n"
+                      f"#define FONT_TILE {FONT_TILE}\n"
+                      "extern const Font font;\n")
+    print(f"font: {FONT_COUNT} characters, tiles {FONT_TILE}-255")
+
     out.write("build/art.c", "build/art.h")
-    print("previews: build/preview_{terrain,players,battles}.png (original above NES)")
+    print("previews: build/preview_{terrain,players,battles}.png (original above NES), "
+          "build/preview_font.png")

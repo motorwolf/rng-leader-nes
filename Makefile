@@ -30,7 +30,7 @@ BUILD := build
 ROM   := $(BUILD)/$(NAME).nes
 
 # The source files. Adding a new .c or .s file to src/ means adding its name here.
-C_SOURCES   := main map mmc1 pad ppu rng screens scroll
+C_SOURCES   := main map mmc1 pad ppu rng screens scroll text
 ASM_SOURCES := header startup reset_stubs
 
 # Every source file becomes one object file in build/, plus the generated art.
@@ -38,7 +38,7 @@ OBJECTS := $(addprefix $(BUILD)/, $(addsuffix .o, $(ASM_SOURCES) $(C_SOURCES) ar
 
 # The Python that has Pillow installed (see the README).
 PYTHON := .venv/bin/python
-ART    := $(wildcard art/*.png)
+ART    := $(wildcard art/*.png) art/PressStart2P-Regular.ttf
 
 # cc65 options:
 #   -t nes  target the NES (selects the right runtime library and settings)
@@ -91,9 +91,9 @@ $(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
 
 # Header dependencies: if a header (the "menu") changes, every C file that
 # includes it must be recompiled, even though its own .c is unchanged.
-# main.c, screens.c and scroll.c include art.h, so they need it generated first.
+# main.c, screens.c, scroll.c and text.c include art.h, so they need it generated first.
 # -I build lets them find it there.
-$(BUILD)/main.s:    $(BUILD)/art.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h
+$(BUILD)/main.s:    $(BUILD)/art.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/text.h
 $(BUILD)/map.s:     src/map.h src/rng.h
 $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h
@@ -101,6 +101,7 @@ $(BUILD)/ppu.s:     src/ppu.h
 $(BUILD)/rng.s:     src/rng.h
 $(BUILD)/screens.s: src/mmc1.h src/ppu.h src/screens.h $(BUILD)/art.h
 $(BUILD)/scroll.s:  src/map.h src/mmc1.h src/ppu.h src/scroll.h $(BUILD)/art.h
+$(BUILD)/text.s:    src/mmc1.h src/ppu.h src/text.h $(BUILD)/art.h
 
 $(BUILD):
 	mkdir -p $(BUILD)

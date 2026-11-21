@@ -50,10 +50,15 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/rng.c` | random numbers (a 16-bit LFSR) |
 | `src/map.c` | generating the overworld map |
 | `src/scroll.c` | the scrolling camera: streams map columns and rows into the nametables |
+| `src/text.c` | drawing text with the font |
 | `src/screens.c` | drawing the overworld and battle screens from the converted art |
 | `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start makes a new map, A ends a fight) |
 | `docs/milestones.md` | the write-up of each finished milestone |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
-| `art/` | the original PNGs |
-| `tools/convert.py` | converts the art to NES tiles and palettes as C arrays (`build/art.c`) |
+| `art/` | the original PNGs, and the original's font with its license (`OFL.txt`) |
+| `tools/convert.py` | converts the art and font to NES tiles and palettes as C arrays (`build/art.c`) |
 | `tools/measure_scale.py` | finds the pixel scale of enlarged pixel art |
+
+## Credits
+
+The text uses a converted copy of Press Start 2P by CodeMan38 (zone38.net), the font the original game used, under the SIL Open Font License 1.1 (`art/OFL.txt`).
