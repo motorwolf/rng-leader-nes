@@ -9,6 +9,11 @@ extern unsigned char ppu_updates_on;
 extern unsigned char vram_buffer[96];
 extern volatile unsigned char vram_ready;
 
+/* Counts frames; startup.s adds one every vblank. "volatile" tells the
+ * compiler it can change behind the code's back, so it must re-read it each
+ * time instead of assuming it stays the same. */
+extern volatile unsigned char frame_count;
+
 /* How much of vram_buffer is filled. */
 static unsigned char queued;
 
@@ -49,6 +54,13 @@ void vram_send(void) {
         PPU_CTRL = CTRL_SETTINGS;
     }
     queued = 0;
+}
+
+void wait_frame(void) {
+    unsigned char start = frame_count;
+    while (frame_count == start) {
+        /* Nothing: just wait for the vblank handler to tick the counter. */
+    }
 }
 
 void vram_pause(void) {

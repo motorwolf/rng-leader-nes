@@ -53,7 +53,8 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/vram.c` | the vblank queue: graphics writes made while the screen is on |
 | `src/text.c` | drawing text with the font |
 | `src/screens.c` | drawing the overworld and battle screens from the converted art |
-| `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start makes a new map, A ends a fight) |
+| `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start makes a new map) |
+| `src/battle.c` | a fight: the battle log and the Attack/Run menu |
 | `docs/milestones.md` | the write-up of each finished milestone |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
 | `art/` | the original PNGs, and the original's font with its license (`OFL.txt`) |

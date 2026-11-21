@@ -1,14 +1,14 @@
 /* main.c - main(): where the C part of the game begins.
  *
- * For now (Milestone 3, in progress):
+ * For now (Milestone 4, in progress):
  *   D-pad   walk, one square per step; hold to keep walking
  *   Start   make a new map
- *   A       end a fight (until fights are real, in Milestone 4)
+ *   in a fight: Left/Right pick Attack or Run, A chooses
  * The camera follows the player around the map, and random fights happen
  * along the way. */
 
 #include "art.h"
-
+#include "battle.h"
 #include "map.h"
 #include "mmc1.h"
 #include "pad.h"
@@ -16,17 +16,7 @@
 #include "rng.h"
 #include "screens.h"
 #include "scroll.h"
-#include "text.h"
 #include "vram.h"
-
-/* Counts frames; startup.s adds one every vblank. "volatile" tells the
- * compiler it can change behind the code's back, so it must re-read it each
- * time instead of assuming it stays the same. */
-extern volatile unsigned char frame_count;
-
-/* PPU_MASK settings: show the background and sprites (bits 3 and 4),
- * including in the leftmost 8 pixels (bits 1 and 2). */
-#define MASK_SHOW 0x1E
 
 /* Walking: a step of one square (32 pixels) takes WALK_FRAMES frames,
  * moving WALK_SPEED pixels each frame. */
@@ -50,14 +40,6 @@ extern volatile unsigned char frame_count;
  * level 1 enemies, which left out the Squash Bug, the one level 10 enemy.
  * Levels never got used, so here it's back in.) */
 #define BOSS 0
-
-/* Sleep until the next vblank: the heartbeat every NES game is built on. */
-static void wait_frame(void) {
-    unsigned char start = frame_count;
-    while (frame_count == start) {
-        /* Nothing: just wait for the vblank handler to tick the counter. */
-    }
-}
 
 /* Where the camera goes, along one axis, for a player at p on the map. */
 static unsigned int camera_for(unsigned int p, unsigned int max) {
@@ -84,36 +66,6 @@ static void show(unsigned int player_x, unsigned int player_y) {
 
     wait_frame();                 /* switch on at the start of a frame too */
     PPU_MASK = MASK_SHOW;
-}
-
-/* A fight with the given enemy. For now just the battle screen, until A is
- * pressed; the fight itself is Milestone 4. */
-static void fight(unsigned char enemy) {
-    unsigned char buttons, previous;
-
-    wait_frame();
-    PPU_MASK = 0;
-    vram_pause();
-    show_battle(enemy);
-    text_print(1, LOG_Y, "A fight!");          /* test: the log and menu come next */
-    text_print(1, LOG_Y + 2, "The death blow has been");
-    text_print(1, MENU_Y, ">ATTACK!  RUN AWAY  HP 20/20");
-    scroll_home();                /* the battle screen doesn't scroll */
-    vram_resume();
-    wait_frame();
-    PPU_MASK = MASK_SHOW;
-
-    /* A has to be pressed during the fight, not just still held from
-     * before. */
-    previous = pad_read();
-    for (;;) {
-        wait_frame();
-        buttons = pad_read();
-        if (buttons & ~previous & PAD_A) {
-            return;
-        }
-        previous = buttons;
-    }
 }
 
 void main(void) {
@@ -210,7 +162,7 @@ void main(void) {
                 if (!(square_x == START_X && square_y == START_Y) &&
                     !(square_x == item_x && square_y == item_y) &&
                     rng_byte() < FIGHT_CHANCE) {
-                    fight(BOSS + 1 + rng_below(ENEMY_COUNT - 1));
+                    battle(BOSS + 1 + rng_below(ENEMY_COUNT - 1));
                     show(map_x, map_y);   /* back to the overworld, as it was */
                     place_player(map_x - camera_x, map_y - camera_y);
                 }

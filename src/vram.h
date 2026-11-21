@@ -21,6 +21,9 @@ void vram_add(unsigned char value);
  * paused, it's written right away instead. */
 void vram_send(void);
 
+/* Sleep until the next vblank: the heartbeat every NES game is built on. */
+void wait_frame(void);
+
 /* Stop the vblank handler touching the graphics chip, so C can write to it
  * directly (with drawing switched off): its writes would scramble C's. While
  * paused, it doesn't set the scroll either. A batch not yet written is
