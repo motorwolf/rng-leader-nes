@@ -94,7 +94,7 @@ $(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
 # main.c, screens.c, scroll.c and text.c include art.h, so they need it generated first.
 # -I build lets them find it there.
 $(BUILD)/main.s:    $(BUILD)/art.h src/battle.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/vram.h
-$(BUILD)/battle.s:  src/battle.h src/pad.h src/ppu.h src/screens.h src/scroll.h src/text.h src/vram.h
+$(BUILD)/battle.s:  src/battle.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/text.h src/vram.h
 $(BUILD)/map.s:     src/map.h src/rng.h
 $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h
