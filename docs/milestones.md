@@ -144,3 +144,123 @@ Milestone 2: a random overworld to walk around. The original generated a 28×16 
 
 A random overworld: the D-pad walks the player across a 28×16 map, the camera follows in all four directions, and Start makes a new map.
 
+
+## Milestone 3: Encounters
+
+### Problem
+
+Milestone 3: random fights while walking the overworld. The random number generator this milestone called for already landed in Milestone 2, for map generation, so what's left is encounters.
+
+### The original
+
+`movePlayer` in `static/js/game.js`:
+
+- After every step, `Math.floor(Math.random() * 100) <= 10` starts a fight: 11%, probably meant as 10%. Terrain doesn't matter.
+- It works out an enemy level (the player's, ±1), then ignores it and asks the server for a level 1 enemy.
+- Stepping on the item's square starts the boss fight, and the random roll still runs on the same step, so two fights can start at once.
+- The castle square heals the player, and a fight can start on the same step.
+
+### Decisions
+
+- **Chance:** 26 in 256 (about 10%), checked when a step finishes.
+- **No roll on the castle or item squares.** The castle will heal and the item square will have the boss (both Milestone 6), and a random fight on top of either is a bug.
+- **The Squash Bug is back.** In `data/enemies` it was level 10 and every other regular enemy level 1, so it never appeared. Levels were never finished, so the pool is all 14 regular enemies. The battle art is in the original's enemy order, so number 0 is the boss and is left out.
+- **Placeholder fight:** the battle screen until A is pressed, then back to the overworld at the same spot. The fight itself is Milestone 4.
+
+### Changes
+
+- `src/main.c`: the roll, the enemy pick, and `fight()`, which swaps to the battle screen and back.
+- `src/scroll.c`: `scroll_home()` points the scroll at the first nametable's corner for the battle screen, which doesn't scroll. The vblank handler sets the scroll from these values every frame, so without it the battle screen would be drawn offset to wherever the overworld camera was.
+- `Makefile`: `main.c` now includes `art.h`, for the enemy count.
+- `README.md`: the `main.c` row lists the new controls.
+
+### Testing
+
+In the emulator, about 570 random steps: 40 fights, all 14 enemies seen, and in 10 fights checked, the player and camera returned exactly where they were.
+
+### Known limits
+
+- **Slow return:** entering a fight blanks the screen for about 12 frames, but returning takes about 47, because the whole overworld is redrawn. Worth revisiting in Milestone 4.
+- **Top row:** on the map's top row the player's top 8 pixels don't show. A sprite can't start on the screen's first scanline, so those sprites land off the bottom. This is in the overscan band and is left as is.
+
+### Result
+
+Walking the overworld triggers random fights with any of the 14 regular enemies; A returns to the map.
+
+
+## Milestone 4: Battles
+
+### Problem
+
+Milestone 4: the fight itself. The original's battle was a web page: the enemy picture, a scrolling message box, and Attack and Run buttons. The NES battle screen from Milestone 1 is one full-screen background picture, with no font, no free tiles and no free palette.
+
+### Constraints
+
+- **Palettes:** every enemy uses all 4 background palettes.
+- **Tiles:** 256 background tiles, and the enemies take up to 153 of them.
+- **Writing while drawing:** the graphics chip can only be written during vblank, and messages have to appear while the screen is on.
+- **Message length:** the original's messages are up to about 40 characters, and the screen is 32 tiles wide.
+
+### Decisions
+
+**Font: Press Start 2P (OFL), stored at 1 bit per pixel.**
+- 95 characters (ASCII 32–126) at tiles 161–255.
+- The loader expands each character to 2 bits per pixel, in whichever two palette colors are asked for. That halves the space and lets one font be drawn in any colors.
+
+**Text colors: the backdrop's palette.**
+- *Options:* free a palette by merging two of an enemy's palettes (loses colors from the 1:1 art), draw the text as sprites (8 per scanline, too few), or reuse an existing palette.
+- *Decision:* palette 0, the backdrop's, which is the same for every enemy: pink ink on purple, with an orange border. `convert.py` checks that every row under a text box uses palette 0 for every enemy.
+
+**Layout: a 3-line log across the top, and a 1-line menu strip at the bottom.**
+- *Options:* a single 2-line box at the bottom (covers less of the enemy, but long messages don't fit), or a taller log panel.
+- *Decision:* the log at the top, kept short enough to sit in the sky above the enemy. Lines wrap at word boundaries, and the newest is at the bottom, like the original's box. The strip shows Attack, Run Away and the player's HP.
+- Box borders take 8 tiles at 153–160, so the enemy art must fit in 153 tiles. `convert.py` checks this.
+
+**The vblank queue moves into `vram.c`.**
+- Scrolling and text both need it now. Starting a new batch waits for the previous one to be sent, so callers can queue one line after another.
+
+**Combat: the original's math, in whole numbers, with four bugs fixed.**
+- **To hit:** a miss is 3 in (dex + 20).
+- **Damage:** a roll from base to 3 × base − 1, where base = weapon + strength / 2, minus the target's armor.
+- **Turn order:** higher dex goes first, and a tie goes to the player. One turn in 10 the order swaps.
+- **Run:** a 30% chance, or 10% against a faster enemy. A failed run gives the enemy a free hit.
+- **Fixes:**
+  - a hit could do 0 damage; now it does at least 1;
+  - a fighter at exactly 0 HP kept fighting; now 0 is dead;
+  - dying when the enemy struck first showed two death messages;
+  - misses showed the name in normal case and hits in capitals.
+
+**Placeholders until later milestones:**
+- The player is always the Elephant.
+- Enemy stats are typed in from `data/enemies`.
+- HP carries over between fights, and dying refills it.
+- Data tables are Milestone 5; experience, the castle's healing and real death are Milestones 6 and 7.
+
+### What went wrong
+
+- **No room for text:** the first mockup put the log in a 2-line box at the bottom, and most messages didn't fit.
+- **Writing text with the screen on:** the queue lived in `scroll.c` and was tied to the camera. Moving it into its own file came before any text could be drawn mid-fight.
+
+### Testing
+
+In the emulator, 218 fights played automatically:
+
+| | Expected | Measured |
+|---|---|---|
+| Player miss rate | 14.3% | 15.1% (39 of 259) |
+| Enemy miss rate | 14.3% | 14.7% (43 of 293) |
+| Player damage | 6–19 | 6–19 |
+| Regular enemy damage | 1–6 | 1–6 |
+| Sadwich damage | 7–24 | 9–24 |
+| Run success | 30% | 25% (51 of 202) |
+
+The run rate is about 1.5 standard deviations low, within chance. After a death, the next fight starts at 20/20.
+
+### Known limits
+
+- **Difficulty:** the Sadwich hits for 7–24 against the Elephant's 20 HP, as in the original, which never got the levels that would have balanced it. Revisit with experience in Milestone 6.
+- **Message pace:** each message pauses 20 frames, and each log line takes 3 frames to redraw.
+
+### Result
+
+Random fights play out: Left/Right picks Attack or Run, A chooses, the log tells the fight, and winning, running or dying returns to the map.

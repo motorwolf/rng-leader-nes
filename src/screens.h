@@ -16,7 +16,14 @@ void show_overworld(unsigned char player);
  * graphics chip, so it's safe to call at any time, every frame. */
 void place_player(unsigned char x, unsigned char y);
 
-/* The battle screen: an enemy standing on the backdrop. */
+/* The battle screen: an enemy standing on the backdrop, with empty text
+ * boxes: a log of LOG_LINES lines across the top, and a one-line menu strip
+ * at the bottom. Text goes in tile columns 1-30 of each (LOG_WIDTH). */
 void show_battle(unsigned char enemy);
+
+#define LOG_Y     2     /* the log's first line, in tile rows */
+#define LOG_LINES 3
+#define LOG_WIDTH 30
+#define MENU_Y    27    /* the menu strip's line */
 
 #endif

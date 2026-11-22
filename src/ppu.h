@@ -28,6 +28,10 @@
  * instead of right (+1): for writing a column of tiles in one run. */
 #define CTRL_DOWN 0x04
 
+/* PPU_MASK settings: show the background and sprites (bits 3 and 4),
+ * including in the leftmost 8 pixels (bits 1 and 2). */
+#define MASK_SHOW 0x1E
+
 /* Everything below must only run while drawing is switched off, or inside
  * vblank. Otherwise it disturbs the PPU mid-frame and the picture glitches. */
 
