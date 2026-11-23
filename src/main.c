@@ -9,6 +9,7 @@
 
 #include "art.h"
 #include "battle.h"
+#include "game.h"
 #include "map.h"
 #include "mmc1.h"
 #include "pad.h"
@@ -87,7 +88,8 @@ void main(void) {
     /* Switch on the vblank interrupt, which starts the frame_count clock. */
     PPU_CTRL = CTRL_SETTINGS;
 
-    /* A first map from the default seed, until the player presses Start. */
+    /* A first game from the default seed, until the player presses Start. */
+    game_new();
     map_generate();
     show(map_x, map_y);
     place_player(map_x - camera_x, map_y - camera_y);
@@ -111,6 +113,7 @@ void main(void) {
                 rng_seed(frames);
                 seeded = 1;
             }
+            game_new();
             map_generate();
             square_x = START_X;
             square_y = START_Y;

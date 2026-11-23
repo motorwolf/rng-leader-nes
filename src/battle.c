@@ -16,7 +16,7 @@
  *
  * The stats come from the original's data files, through tools/data.py.
  *
- * For now: the player is always the Elephant, named HERO. Winning or dying
+ * For now: the player is always the Elephant. Winning or dying
  * just returns to the map; HP carries over between fights, and dying
  * refills it. Experience, the castle's healing and real death come in
  * Milestones 6 and 7. */
@@ -26,6 +26,7 @@
 #include "art.h"
 #include "battle.h"
 #include "data.h"
+#include "game.h"
 #include "mmc1.h"
 #include "pad.h"
 #include "rng.h"
@@ -271,11 +272,11 @@ static unsigned char turn(void) {
 void battle(unsigned char enemy) {
     unsigned char buttons, previous, pressed;
 
-    /* The fighters: for now the player is always an Elephant, named HERO. */
+    /* The fighters: for now the player is always an Elephant. */
     mmc1_set_bank(DATA_BANK);
     fighters[PLAYER] = classes[CLASS_ELEPHANT];
     fighters[ENEMY] = enemies[enemy].stats;
-    strcpy(fighters[PLAYER].name, "HERO");
+    strcpy(fighters[PLAYER].name, player_name);
     max_hp = fighters[PLAYER].hp;
     if (player_hp) {
         fighters[PLAYER].hp = player_hp;
@@ -331,6 +332,7 @@ void battle(unsigned char enemy) {
     if (fighters[PLAYER].hp == 0) {
         put_text("You are dead.");
         say();
+        game_killer = enemy;        /* for the death story */
         player_hp = 0;              /* for now, the next fight starts afresh */
     } else {
         if (fighters[ENEMY].hp == 0) {
