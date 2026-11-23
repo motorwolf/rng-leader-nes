@@ -103,10 +103,10 @@ $(BUILD)/data.s: $(BUILD)/data.c $(BUILD)/data.h
 # includes it must be recompiled, even though its own .c is unchanged.
 # Some files include the generated art.h or data.h, so they need it generated first.
 # -I build lets them find it there.
-$(BUILD)/main.s:    $(BUILD)/art.h $(BUILD)/data.h src/battle.h src/game.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/vram.h
+$(BUILD)/main.s:    $(BUILD)/art.h $(BUILD)/data.h src/battle.h src/game.h src/story.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/vram.h
 $(BUILD)/battle.s:  $(BUILD)/art.h $(BUILD)/data.h src/battle.h src/game.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/text.h src/vram.h
 $(BUILD)/game.s:    $(BUILD)/data.h src/game.h src/rng.h
-$(BUILD)/story.s:   $(BUILD)/data.h src/game.h src/mmc1.h src/story.h
+$(BUILD)/story.s:   $(BUILD)/data.h src/game.h src/mmc1.h src/pad.h src/ppu.h src/screens.h src/scroll.h src/story.h src/vram.h
 $(BUILD)/map.s:     src/map.h src/rng.h
 $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h

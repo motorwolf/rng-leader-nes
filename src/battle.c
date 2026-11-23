@@ -99,28 +99,11 @@ static void log_push(const char *text, unsigned char length) {
 }
 
 void log_add(const char *text) {
-    unsigned char length, cut;
-
+    unsigned char length;
     while (*text) {
-        length = 0;
-        while (text[length] && length <= LOG_WIDTH) {
-            ++length;
-        }
-        if (length <= LOG_WIDTH) {          /* the rest fits on one line */
-            log_push(text, length);
-            return;
-        }
-        /* Too long: break at the last space that keeps the line within the
-         * width, or mid-word if a word is longer than a whole line. */
-        cut = LOG_WIDTH;
-        while (cut && text[cut] != ' ') {
-            --cut;
-        }
-        if (cut == 0) {
-            cut = LOG_WIDTH;
-        }
-        log_push(text, cut);
-        text += cut;
+        length = text_wrap(text, LOG_WIDTH);
+        log_push(text, length);
+        text += length;
         while (*text == ' ') {
             ++text;
         }

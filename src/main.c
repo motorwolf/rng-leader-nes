@@ -1,8 +1,8 @@
 /* main.c - main(): where the C part of the game begins.
  *
- * For now (Milestone 4, in progress):
+ * For now (Milestone 5, in progress):
  *   D-pad   walk, one square per step; hold to keep walking
- *   Start   make a new map
+ *   Start   a new game: the quest (A to go on), then a new map
  *   in a fight: Left/Right pick Attack or Run, A chooses
  * The camera follows the player around the map, and random fights happen
  * along the way. */
@@ -17,6 +17,7 @@
 #include "rng.h"
 #include "screens.h"
 #include "scroll.h"
+#include "story.h"
 #include "vram.h"
 
 /* Walking: a step of one square (32 pixels) takes WALK_FRAMES frames,
@@ -115,6 +116,7 @@ void main(void) {
             }
             game_new();
             map_generate();
+            story_tell(STORY_START);      /* the quest, until A is pressed */
             square_x = START_X;
             square_y = START_Y;
             map_x = START_X * 32u;

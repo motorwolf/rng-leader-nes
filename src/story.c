@@ -14,7 +14,12 @@
 #include "data.h"
 #include "game.h"
 #include "mmc1.h"
+#include "pad.h"
+#include "ppu.h"
+#include "screens.h"
+#include "scroll.h"
 #include "story.h"
+#include "vram.h"
 
 char story[STORY_SIZE];
 
@@ -54,4 +59,30 @@ void story_format(unsigned char block) {
         }
     }
     *end = 0;
+}
+
+void story_tell(unsigned char block) {
+    unsigned char buttons, previous, pressed;
+
+    story_format(block);
+
+    /* Switch to the story screen, with drawing off, as for a fight. */
+    wait_frame();
+    PPU_MASK = 0;
+    vram_pause();
+    show_story(story);
+    scroll_home();
+    vram_resume();
+    wait_frame();
+    PPU_MASK = MASK_SHOW;
+
+    /* Wait for a press of A. A button already held (the Start that began
+     * the game, say) doesn't count until it's let go and pressed again. */
+    previous = pad_read();
+    do {
+        wait_frame();
+        buttons = pad_read();
+        pressed = buttons & ~previous;
+        previous = buttons;
+    } while (!(pressed & PAD_A));
 }

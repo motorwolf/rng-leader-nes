@@ -36,15 +36,40 @@ void text_load(unsigned char ink, unsigned char paper) {
     }
 }
 
+void text_write(unsigned char x, unsigned char y, const char *text, unsigned char count) {
+    vram_run(PPU_NAMETABLE0 + y * 32u + x, count, 0);
+    while (count--) {
+        /* The font starts at the space, character code 32. */
+        vram_add(FONT_TILE + (unsigned char)(*text++ - ' '));
+    }
+    vram_send();
+}
+
 void text_print(unsigned char x, unsigned char y, const char *text) {
     unsigned char length = 0;
     while (text[length]) {
         ++length;
     }
-    vram_run(PPU_NAMETABLE0 + y * 32u + x, length, 0);
-    while (*text) {
-        /* The font starts at the space, character code 32. */
-        vram_add(FONT_TILE + (unsigned char)(*text++ - ' '));
+    text_write(x, y, text, length);
+}
+
+unsigned char text_wrap(const char *text, unsigned char width) {
+    unsigned char length = 0, cut;
+
+    /* Count up to one past the width: if the text ends by then, it all fits. */
+    while (text[length] && length <= width) {
+        ++length;
     }
-    vram_send();
+    if (length <= width) {
+        return length;
+    }
+
+    /* Too long: break at the last space that keeps the line within the
+     * width (text[width] being a space counts: the line then fills it
+     * exactly), or mid-word if one word is longer than a whole line. */
+    cut = width;
+    while (cut && text[cut] != ' ') {
+        --cut;
+    }
+    return cut ? cut : width;
 }

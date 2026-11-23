@@ -924,6 +924,10 @@ if __name__ == "__main__":
                       f"#define BOX_TILE {BOX_TILE}\n"
                       f"#define BOX_FILL {fill}\n"
                       f"#define BOX_INK  {ink}\n"
+                      "/* The backdrop's palette: the shared color, then slots 1-3, for a\n"
+                      " * screen of nothing but text boxes. */\n"
+                      f"#define BOX_COLORS {{ 0x{shared:02X}, "
+                      + ", ".join(f"0x{c:02X}" for c in backdrop_palette) + " }\n"
                       "extern const Tiles box;\n")
 
     out.write("build/art.c", "build/art.h")

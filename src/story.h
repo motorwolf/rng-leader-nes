@@ -12,4 +12,8 @@ extern char story[STORY_SIZE];
  * values (game.h), into story[]. */
 void story_format(unsigned char block);
 
+/* Fill in a story block and show it on its own screen until the player
+ * presses A. Drawing whatever comes next is up to the caller. */
+void story_tell(unsigned char block);
+
 #endif
