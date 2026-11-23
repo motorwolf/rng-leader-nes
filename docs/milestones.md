@@ -264,3 +264,69 @@ The run rate is about 1.5 standard deviations low, within chance. After a death,
 ### Result
 
 Random fights play out: Left/Right picks Attack or Run, A chooses, the log tells the fight, and winning, running or dying returns to the map.
+
+
+## Milestone 5: Text and data
+
+### Problem
+
+Milestone 5: the original's data and story, and the intro on screen. The original kept its data in pipe-separated text files, loaded into a database by `seed.py`. The server filled in story templates (`$name$ has been tasked with retrieving $regent$'s $item$…`) and sent the text to the browser. The NES has no database, no filesystem and 2 KB of RAM.
+
+### Constraints
+
+- **Fixed bank:** the only bank that's always readable. It holds all the code, with about 7 KB left for Milestones 6–8.
+- **Switchable banks:** they share one window at $8000, so data in them is only readable while its bank is selected. Loading art switches banks.
+- **Text size:** item names run to 69 characters, so a filled-in story can be over 200.
+
+### Decisions
+
+**Tables generated from the original files (`tools/data.py`).**
+- `data/` holds the original's files unchanged, and `make` turns them into `build/data.c` and `build/data.h`, as `convert.py` does for the art.
+- **Fighters:** enemies and classes become records with the name stored inside, so one copy brings a whole fighter into RAM.
+- **Text:** item names, regents (title plus name, the only form the original showed) and story templates become string tables.
+- **Capitals:** names are put in capitals at build time, since the original always showed them that way.
+- **Build checks:** HP starting at full, characters outside the font, unknown story slots, unpaired `$`, a missing Future Tech, and the enemy count matching the battle art's.
+- **Left out:**
+  - mutations, which the original never used;
+  - the longer `data/story` intro, which nothing loaded;
+  - regents' species, descriptions and attitudes.
+
+**All the data in one switchable bank, and the copy rule.**
+- *Options:* the fixed bank (any code can read it, but it uses over half the space left there), or a switchable bank.
+- *Decision:* bank 14, reserved for the data; `convert.py` keeps the art in banks 0–13. The rule: switch to it and copy what's needed into RAM before anything else switches. A fight copies its two fighters, and the story is filled into a RAM buffer. `text_print()` only reads RAM.
+
+**Story slots as one-byte codes.**
+- Each `$slot$` becomes a byte from 1 to 4: name, regent, item, killer. The font starts at 32, so a code can't be mistaken for a character.
+- Filling a template in is one pass: copy, and wherever there's a code, copy the value.
+- `data.py` works out the longest possible result, which sizes the buffer at 208 bytes.
+
+**The compendium line.** The original printed "HERO's compendium reads: …" with the enemy's description after "draws near.". The port does too, letting the log scroll. A press-A prompt was considered, but one Attack turn can print 4–5 lines, so it would stop most turns.
+
+**Articles in the fight opener.** The original always said "A", as in "A AGGRO CHAIRY draws near.". Now it's "AN" before a vowel, and the boss gets no article: "ICHABOD CRANE draws near.".
+
+**The intro on its own screen.** Start begins a new game: a random regent, and a random item other than Future Tech. Then comes the start story, word-wrapped and double-spaced in one large text box in the battle boxes' colors, until A is pressed. The log and the story share one word-wrap function.
+
+**Placeholders until later milestones:**
+- The player is HERO, an Elephant.
+- Future Tech is never picked, since nothing is collected yet. In the original it's the only item once every other one is collected.
+- Name entry and class choice are Milestone 6; saved collections are Milestone 7.
+
+### What went wrong
+
+- **Strings in the wrong bank:** cc65 put string literals in the fixed bank whatever `#pragma rodata-name` said, so the first build had the descriptions outside bank 14. Each string is now its own named array, and all the data (1.8 KB) is in bank 14.
+
+### Testing
+
+- **Fights:** in the emulator, fights against each kind of enemy show the right names, stats and compendium entries.
+- **Openers:** "AN AGGRO CHAIRY", "A SADWICH", and the boss, checked with a temporary build that always started his fight.
+- **Templates:** a temporary build filled in a random story block on each Start, and `story[]` was read out of RAM. All three blocks and all four slots filled correctly, the longest at 161 characters. Necronomicon, the item after Future Tech, came up, so the skip doesn't block its neighbor.
+- **Intro:** shows after Start, and A goes on to the map. An A already held when Start is pressed doesn't skip it.
+
+### Known limits
+
+- **Grammar from the original data:** a possessive keeps its lowercase 's after capitals ("QUEEN ANNE BONNY's NECRONOMICON"), and items have no article in the stories, read as names, like the boss. Both kept 1:1.
+- **Edges in the browser:** jsnes blanks the outer 8 pixels on each side, which hides the text boxes' left and right borders.
+
+### Result
+
+Start begins a new game and tells its quest; fights take their stats, names and descriptions from the original's data files.

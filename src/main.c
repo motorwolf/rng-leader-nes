@@ -1,14 +1,16 @@
 /* main.c - main(): where the C part of the game begins.
  *
- * For now (Milestone 4, in progress):
+ * For now (Milestone 5, in progress):
  *   D-pad   walk, one square per step; hold to keep walking
- *   Start   make a new map
+ *   Start   a new game: the quest (A to go on), then a new map
  *   in a fight: Left/Right pick Attack or Run, A chooses
  * The camera follows the player around the map, and random fights happen
  * along the way. */
 
 #include "art.h"
 #include "battle.h"
+#include "data.h"
+#include "game.h"
 #include "map.h"
 #include "mmc1.h"
 #include "pad.h"
@@ -16,6 +18,7 @@
 #include "rng.h"
 #include "screens.h"
 #include "scroll.h"
+#include "story.h"
 #include "vram.h"
 
 /* Walking: a step of one square (32 pixels) takes WALK_FRAMES frames,
@@ -35,11 +38,9 @@
  * the item's square, which will have the boss (both Milestone 6). */
 #define FIGHT_CHANCE 26
 
-/* The battle art is in the order of the original's enemy list. Number 0 is
- * the boss; random fights pick from the rest. (The original only picked
- * level 1 enemies, which left out the Squash Bug, the one level 10 enemy.
- * Levels never got used, so here it's back in.) */
-#define BOSS 0
+/* Random fights pick from every enemy but the boss (BOSS, data.h). (The
+ * original only picked level 1 enemies, which left out the Squash Bug, the
+ * one level 10 enemy. Levels never got used, so here it's back in.) */
 
 /* Where the camera goes, along one axis, for a player at p on the map. */
 static unsigned int camera_for(unsigned int p, unsigned int max) {
@@ -87,7 +88,8 @@ void main(void) {
     /* Switch on the vblank interrupt, which starts the frame_count clock. */
     PPU_CTRL = CTRL_SETTINGS;
 
-    /* A first map from the default seed, until the player presses Start. */
+    /* A first game from the default seed, until the player presses Start. */
+    game_new();
     map_generate();
     show(map_x, map_y);
     place_player(map_x - camera_x, map_y - camera_y);
@@ -111,7 +113,9 @@ void main(void) {
                 rng_seed(frames);
                 seeded = 1;
             }
+            game_new();
             map_generate();
+            story_tell(STORY_START);      /* the quest, until A is pressed */
             square_x = START_X;
             square_y = START_Y;
             map_x = START_X * 32u;

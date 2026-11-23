@@ -51,14 +51,18 @@ arrow keys, Z = A, X = B, Enter = Start, Shift = Select.
 | `src/map.c` | generating the overworld map |
 | `src/scroll.c` | the scrolling camera: streams map columns and rows into the nametables |
 | `src/vram.c` | the vblank queue: graphics writes made while the screen is on |
-| `src/text.c` | drawing text with the font |
-| `src/screens.c` | drawing the overworld and battle screens from the converted art |
-| `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start makes a new map) |
-| `src/battle.c` | a fight: the battle log and the Attack/Run menu |
+| `src/text.c` | drawing text with the font, and word wrap |
+| `src/screens.c` | drawing the overworld, battle and story screens |
+| `src/main.c` | the game; for now the overworld with random fights (D-pad walks, Start begins a new game) |
+| `src/game.c` | the current game: the player's name, and this game's regent and item |
+| `src/story.c` | filling in the story's templates and showing them |
+| `src/battle.c` | a fight: the battle log, the Attack/Run menu and the combat |
 | `docs/milestones.md` | the write-up of each finished milestone |
 | `mmc1.cfg` | linker config: where each piece goes in the 256 KB ROM |
 | `art/` | the original PNGs, and the original's font with its license (`OFL.txt`) |
+| `data/` | the original's data files: classes, enemies, items, mutations, regents, story blocks |
 | `tools/convert.py` | converts the art and font to NES tiles and palettes as C arrays (`build/art.c`) |
+| `tools/data.py` | converts the data files to C tables (`build/data.c`) |
 | `tools/measure_scale.py` | finds the pixel scale of enlarged pixel art |
 
 ## Credits

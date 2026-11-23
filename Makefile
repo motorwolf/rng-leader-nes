@@ -17,11 +17,13 @@
 #   src/startup.s ─────────────ca65──► build/startup.o ───────┼─ld65─► build/rng-leader.nes
 #   src/reset_stubs.s ─────────ca65──► build/reset_stubs.o ───┤   (laid out by mmc1.cfg)
 #   src/header.s ──────────────ca65──► build/header.o ────────┤
-#   art/*.png ─convert.py─► build/art.c ─cc65─► ... build/art.o ┘
+#   art/*.png ─convert.py─► build/art.c ─cc65─► ... build/art.o ──┤
+#   data/* ────data.py────► build/data.c ─cc65─► ... build/data.o ┘
 #
 # cc65 compiles C into 6502 assembly, ca65 assembles that into machine code
 # (object files, .o), and ld65 links the objects into the final ROM.
-# convert.py turns the art into C arrays first (see tools/convert.py).
+# convert.py turns the art into C arrays first (see tools/convert.py), and
+# data.py the original's data files into C tables (see tools/data.py).
 
 # --- Settings -------------------------------------------------------------
 
@@ -30,15 +32,16 @@ BUILD := build
 ROM   := $(BUILD)/$(NAME).nes
 
 # The source files. Adding a new .c or .s file to src/ means adding its name here.
-C_SOURCES   := battle main map mmc1 pad ppu rng screens scroll text vram
+C_SOURCES   := battle game main map mmc1 pad ppu rng screens scroll story text vram
 ASM_SOURCES := header startup reset_stubs
 
 # Every source file becomes one object file in build/, plus the generated art.
-OBJECTS := $(addprefix $(BUILD)/, $(addsuffix .o, $(ASM_SOURCES) $(C_SOURCES) art))
+OBJECTS := $(addprefix $(BUILD)/, $(addsuffix .o, $(ASM_SOURCES) $(C_SOURCES) art data))
 
 # The Python that has Pillow installed (see the README).
 PYTHON := .venv/bin/python
 ART    := $(wildcard art/*.png) art/PressStart2P-Regular.ttf
+DATA   := $(wildcard data/*)
 
 # cc65 options:
 #   -t nes  target the NES (selects the right runtime library and settings)
@@ -85,16 +88,25 @@ $(BUILD)/art.c: tools/convert.py $(ART) | $(BUILD)
 	$(PYTHON) tools/convert.py
 $(BUILD)/art.h: $(BUILD)/art.c
 
-# Compile the generated art (it lives in build/, not src/).
+# Generate the data tables, the same way.
+$(BUILD)/data.c: tools/data.py $(DATA) | $(BUILD)
+	$(PYTHON) tools/data.py
+$(BUILD)/data.h: $(BUILD)/data.c
+
+# Compile the generated art and data (they live in build/, not src/).
 $(BUILD)/art.s: $(BUILD)/art.c $(BUILD)/art.h
+	cc65 $(CFLAGS) $< -o $@
+$(BUILD)/data.s: $(BUILD)/data.c $(BUILD)/data.h
 	cc65 $(CFLAGS) $< -o $@
 
 # Header dependencies: if a header (the "menu") changes, every C file that
 # includes it must be recompiled, even though its own .c is unchanged.
-# main.c, screens.c, scroll.c and text.c include art.h, so they need it generated first.
+# Some files include the generated art.h or data.h, so they need it generated first.
 # -I build lets them find it there.
-$(BUILD)/main.s:    $(BUILD)/art.h src/battle.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/vram.h
-$(BUILD)/battle.s:  src/battle.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/text.h src/vram.h
+$(BUILD)/main.s:    $(BUILD)/art.h $(BUILD)/data.h src/battle.h src/game.h src/story.h src/map.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/vram.h
+$(BUILD)/battle.s:  $(BUILD)/art.h $(BUILD)/data.h src/battle.h src/game.h src/mmc1.h src/pad.h src/ppu.h src/rng.h src/screens.h src/scroll.h src/text.h src/vram.h
+$(BUILD)/game.s:    $(BUILD)/data.h src/game.h src/rng.h
+$(BUILD)/story.s:   $(BUILD)/data.h src/game.h src/mmc1.h src/pad.h src/ppu.h src/screens.h src/scroll.h src/story.h src/vram.h
 $(BUILD)/map.s:     src/map.h src/rng.h
 $(BUILD)/mmc1.s:    src/mmc1.h
 $(BUILD)/pad.s:     src/pad.h

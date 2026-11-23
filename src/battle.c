@@ -7,21 +7,28 @@
  *     Left and Right move the cursor, A picks.
  *
  * The fighting is ported from the original (Player.attack and
- * startAttackSequence in static/js/game.js), in whole numbers, with four of
+ * startAttackSequence in static/js/game.js), in whole numbers, with five of
  * its bugs fixed:
  *   - a hit could do 0 damage; now it's at least 1;
  *   - a fighter at exactly 0 HP kept fighting; now 0 is dead;
  *   - dying when the enemy struck first showed two death messages;
- *   - misses showed the name in normal case, hits in capitals.
+ *   - misses showed the name in normal case, hits in capitals;
+ *   - "A AGGRO CHAIRY draws near."; now "AN", and no article for the boss.
  *
- * For now (Milestone 4, in progress): the player is always the Elephant,
- * and the enemies' stats are typed in below, from the original's
- * data/enemies (Milestone 5 generates them from the data files). Winning
- * or dying just returns to the map; HP carries over between fights, and
- * dying refills it. Experience, the castle's healing and real death come in
+ * The stats come from the original's data files, through tools/data.py.
+ *
+ * For now: the player is always the Elephant. Winning or dying
+ * just returns to the map; HP carries over between fights, and dying
+ * refills it. Experience, the castle's healing and real death come in
  * Milestones 6 and 7. */
 
+#include <string.h>
+
+#include "art.h"
 #include "battle.h"
+#include "data.h"
+#include "game.h"
+#include "mmc1.h"
 #include "pad.h"
 #include "rng.h"
 #include "ppu.h"
@@ -37,46 +44,24 @@ static char lines[LOG_LINES][LOG_WIDTH + 1];
 
 /* --- The fighters -------------------------------------------------------- */
 
-/* A fighter's stats, as in the original: strength, dexterity (speed and
- * aim), armor, weapon, hit points. */
-typedef struct {
-    const char *name;
-    unsigned char str, dex, arm, weap, hp;
-} Stats;
+/* The enemy table (data.h) is in the battle art's order, so an enemy's
+ * number picks both. If the two counts differ, a data file and the art
+ * have drifted apart. */
+#if ENEMIES != ENEMY_COUNT
+#error "data/enemies and the battle art have different numbers of enemies"
+#endif
 
-/* The enemies, in the order of their battle art (number 0 is the boss),
- * from the original's data/enemies. The names are in capitals, as the
- * original showed them in fights. */
-static const Stats enemies[15] = {
-    { "ICHABOD CRANE", 10, 6, 10, 3, 60 },
-    { "SADWICH",        5, 1,  2, 7, 25 },
-    { "SQUASH BUG",     2, 1,  1, 2, 15 },
-    { "RED SLIME",      2, 1,  1, 2,  3 },
-    { "STACK ATTACK",   2, 1,  1, 2, 15 },
-    { "BLUE SLIME",     2, 1,  1, 1, 15 },
-    { "TENTACLES",      2, 1,  1, 2, 15 },
-    { "FANGED MELON",   2, 1,  1, 2, 15 },
-    { "WINTER MELON",   2, 1,  1, 2, 15 },
-    { "AGGRO CHAIRY",   2, 1,  1, 2, 15 },
-    { "RATTLER",        2, 1,  1, 2, 15 },
-    { "CRENSHAW",       2, 1,  1, 2, 15 },
-    { "CASABA",         2, 1,  1, 2, 15 },
-    { "KABOCHA",        2, 1,  1, 2, 15 },
-    { "CUBE",           2, 1,  1, 2, 15 },
-};
-
-/* The player: the Elephant, from the original's data/class. */
-static const Stats elephant = { "HERO", 6, 1, 2, 4, 20 };
-
-/* The two fighters in this fight: the stats are copied in, so hp can
- * change. Fighter 0 is the player, fighter 1 the enemy, so the other one
- * is always `f ^ 1`. */
+/* The two fighters in this fight, copied out of the data bank, so hp can
+ * change and the names can be read with any bank switched in. Fighter 0 is
+ * the player, fighter 1 the enemy, so the other one is always `f ^ 1`. */
 #define PLAYER 0
 #define ENEMY  1
 static Stats fighters[2];
 
-/* The player's HP, kept between fights. 0 = start afresh. */
+/* The player's HP, kept between fights (0 = start afresh), and the most
+ * it can be. */
 static unsigned char player_hp;
+static unsigned char max_hp;
 
 /* --- The menu ------------------------------------------------------------ */
 
@@ -115,28 +100,11 @@ static void log_push(const char *text, unsigned char length) {
 }
 
 void log_add(const char *text) {
-    unsigned char length, cut;
-
+    unsigned char length;
     while (*text) {
-        length = 0;
-        while (text[length] && length <= LOG_WIDTH) {
-            ++length;
-        }
-        if (length <= LOG_WIDTH) {          /* the rest fits on one line */
-            log_push(text, length);
-            return;
-        }
-        /* Too long: break at the last space that keeps the line within the
-         * width, or mid-word if a word is longer than a whole line. */
-        cut = LOG_WIDTH;
-        while (cut && text[cut] != ' ') {
-            --cut;
-        }
-        if (cut == 0) {
-            cut = LOG_WIDTH;
-        }
-        log_push(text, cut);
-        text += cut;
+        length = text_wrap(text, LOG_WIDTH);
+        log_push(text, length);
+        text += length;
         while (*text == ' ') {
             ++text;
         }
@@ -146,8 +114,14 @@ void log_add(const char *text) {
 /* --- Messages -------------------------------------------------------------- */
 
 /* A message being put together: put_text() and put_number() add to the end,
- * then say() shows it. */
-static char message[LOG_WIDTH * 2 + 1];
+ * then say() shows it. Room for 3 lines' worth, and nothing checks the
+ * length as it's written, so the longest message is checked here instead:
+ * the compendium line, with the longest name and description. */
+#define COMPENDIUM "'s compendium reads: "
+static char message[LOG_WIDTH * 3 + 1];
+#if (NAME_SIZE - 1) + 21 + DESC_LONGEST > LOG_WIDTH * 3   /* 21: COMPENDIUM's length */
+#error "the longest compendium line doesn't fit in message[]"
+#endif
 static char *end;
 
 static void put_text(const char *text) {
@@ -195,7 +169,7 @@ static void draw_menu(void) {
     put_text("HP ");
     put_number(fighters[PLAYER].hp);
     *end++ = '/';
-    put_number(elephant.hp);
+    put_number(max_hp);
     while (end < strip + LOG_WIDTH) {
         *end++ = ' ';               /* clear what a longer HP left behind */
     }
@@ -282,12 +256,15 @@ static unsigned char turn(void) {
 void battle(unsigned char enemy) {
     unsigned char buttons, previous, pressed;
 
-    /* The fighters. */
-    fighters[PLAYER] = elephant;
+    /* The fighters: for now the player is always an Elephant. */
+    mmc1_set_bank(DATA_BANK);
+    fighters[PLAYER] = classes[CLASS_ELEPHANT];
+    fighters[ENEMY] = enemies[enemy].stats;
+    strcpy(fighters[PLAYER].name, player_name);
+    max_hp = fighters[PLAYER].hp;
     if (player_hp) {
         fighters[PLAYER].hp = player_hp;
     }
-    fighters[ENEMY] = enemies[enemy];
     end = message;
 
     /* Switch to the battle screen, with drawing off. */
@@ -303,9 +280,27 @@ void battle(unsigned char enemy) {
     wait_frame();
     PPU_MASK = MASK_SHOW;
 
-    put_text("A ");
+    /* "A SADWICH", "AN AGGRO CHAIRY", and the boss by name alone. (The
+     * original always said "A".) */
+    if (enemy != BOSS) {
+        switch (fighters[ENEMY].name[0]) {
+        case 'A': case 'E': case 'I': case 'O': case 'U':
+            put_text("AN ");
+            break;
+        default:
+            put_text("A ");
+        }
+    }
     put_text(fighters[ENEMY].name);
     put_text(" draws near.");
+    say();
+
+    /* The enemy's description, read straight out of the data bank: put_text()
+     * copies it into message[] while the bank is still switched in. */
+    put_text(fighters[PLAYER].name);
+    put_text(COMPENDIUM);
+    mmc1_set_bank(DATA_BANK);
+    put_text(enemies[enemy].desc);
     say();
 
     /* Buttons already held when the fight started don't count as presses. */
@@ -331,6 +326,7 @@ void battle(unsigned char enemy) {
     if (fighters[PLAYER].hp == 0) {
         put_text("You are dead.");
         say();
+        game_killer = enemy;        /* for the death story */
         player_hp = 0;              /* for now, the next fight starts afresh */
     } else {
         if (fighters[ENEMY].hp == 0) {

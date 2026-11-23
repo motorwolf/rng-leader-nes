@@ -129,3 +129,46 @@ void show_battle(unsigned char enemy) {
     draw_box(0, LOG_Y - 1, 31, LOG_Y + LOG_LINES, 0);
     draw_box(0, MENU_Y - 1, 31, 29, 1);
 }
+
+void show_story(const char *text) {
+    static const unsigned char colors[4] = BOX_COLORS;
+    const char *t;
+    unsigned char lines, length, y;
+
+    hide_sprites();
+
+    /* Only the box tiles and the font, in the backdrop's palette. */
+    mmc1_set_bank(BOX_BANK);
+    ppu_set_addr(PPU_TILES + BOX_TILE * 16u);
+    ppu_write(box.tiles, box.count * 16u);
+    text_load(BOX_INK, BOX_FILL);
+    ppu_set_addr(PPU_PALETTES);
+    ppu_write(colors, 4);
+
+    /* Fill the screen with the font's space, which is all the fill color,
+     * then (straight after, in memory) set every area to palette 0. */
+    ppu_set_addr(PPU_NAMETABLE0);
+    ppu_fill(FONT_TILE, 960);
+    ppu_fill(0, 64);
+    draw_box(0, STORY_TOP - 2, 31, STORY_PROMPT + 2, 0);
+
+    /* Count the lines, to center them, double-spaced, between STORY_TOP and
+     * STORY_BOTTOM. (The longest story, STORY_SIZE, is about 9 lines.) */
+    lines = 0;
+    for (t = text; *t; ++lines) {
+        t += text_wrap(t, STORY_WIDTH);
+        while (*t == ' ') {
+            ++t;
+        }
+    }
+    y = STORY_TOP + (STORY_BOTTOM - STORY_TOP + 2 - lines * 2) / 2;
+    for (t = text; *t; y += 2) {
+        length = text_wrap(t, STORY_WIDTH);
+        text_write(STORY_X, y, t, length);
+        t += length;
+        while (*t == ' ') {
+            ++t;
+        }
+    }
+    text_print(12, STORY_PROMPT, "PRESS A");
+}

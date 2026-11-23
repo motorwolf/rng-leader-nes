@@ -15,4 +15,12 @@ void text_load(unsigned char ink, unsigned char paper);
  * appears at the next vblank. At most 93 characters. */
 void text_print(unsigned char x, unsigned char y, const char *text);
 
+/* The same, for the first `count` characters of `text`. */
+void text_write(unsigned char x, unsigned char y, const char *text, unsigned char count);
+
+/* Word wrap: how many characters of `text` go on a line `width` wide. The
+ * line breaks at a space, or mid-word if a word is longer than the line.
+ * The next line starts after that, once any spaces are skipped. */
+unsigned char text_wrap(const char *text, unsigned char width);
+
 #endif
