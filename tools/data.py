@@ -97,6 +97,8 @@ def main():
         "    unsigned char level, exp;\n"
         "    const char *desc;\n"
         "} Enemy;\n\n",
+        "/* The longest description, for sizing buffers. */\n",
+        f"#define DESC_LONGEST {max(len(row[-1]) for row in enemies)}\n\n",
         "/* In the battle art's order: number 0 is the boss. */\n",
         f"#define ENEMIES {len(enemies)}\n",
         "extern const Enemy enemies[ENEMIES];\n\n",

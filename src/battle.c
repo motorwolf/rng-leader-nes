@@ -129,8 +129,14 @@ void log_add(const char *text) {
 /* --- Messages -------------------------------------------------------------- */
 
 /* A message being put together: put_text() and put_number() add to the end,
- * then say() shows it. */
-static char message[LOG_WIDTH * 2 + 1];
+ * then say() shows it. Room for 3 lines' worth, and nothing checks the
+ * length as it's written, so the longest message is checked here instead:
+ * the compendium line, with the longest name and description. */
+#define COMPENDIUM "'s compendium reads: "
+static char message[LOG_WIDTH * 3 + 1];
+#if (NAME_SIZE - 1) + 21 + DESC_LONGEST > LOG_WIDTH * 3   /* 21: COMPENDIUM's length */
+#error "the longest compendium line doesn't fit in message[]"
+#endif
 static char *end;
 
 static void put_text(const char *text) {
@@ -292,6 +298,14 @@ void battle(unsigned char enemy) {
     put_text("A ");
     put_text(fighters[ENEMY].name);
     put_text(" draws near.");
+    say();
+
+    /* The enemy's description, read straight out of the data bank: put_text()
+     * copies it into message[] while the bank is still switched in. */
+    put_text(fighters[PLAYER].name);
+    put_text(COMPENDIUM);
+    mmc1_set_bank(DATA_BANK);
+    put_text(enemies[enemy].desc);
     say();
 
     /* Buttons already held when the fight started don't count as presses. */
