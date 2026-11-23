@@ -14,14 +14,19 @@
  *   - dying when the enemy struck first showed two death messages;
  *   - misses showed the name in normal case, hits in capitals.
  *
- * For now (Milestone 4, in progress): the player is always the Elephant,
- * and the enemies' stats are typed in below, from the original's
- * data/enemies (Milestone 5 generates them from the data files). Winning
- * or dying just returns to the map; HP carries over between fights, and
- * dying refills it. Experience, the castle's healing and real death come in
+ * The stats come from the original's data files, through tools/data.py.
+ *
+ * For now: the player is always the Elephant, named HERO. Winning or dying
+ * just returns to the map; HP carries over between fights, and dying
+ * refills it. Experience, the castle's healing and real death come in
  * Milestones 6 and 7. */
 
+#include <string.h>
+
+#include "art.h"
 #include "battle.h"
+#include "data.h"
+#include "mmc1.h"
 #include "pad.h"
 #include "rng.h"
 #include "ppu.h"
@@ -37,46 +42,24 @@ static char lines[LOG_LINES][LOG_WIDTH + 1];
 
 /* --- The fighters -------------------------------------------------------- */
 
-/* A fighter's stats, as in the original: strength, dexterity (speed and
- * aim), armor, weapon, hit points. */
-typedef struct {
-    const char *name;
-    unsigned char str, dex, arm, weap, hp;
-} Stats;
+/* The enemy table (data.h) is in the battle art's order, so an enemy's
+ * number picks both. If the two counts differ, a data file and the art
+ * have drifted apart. */
+#if ENEMIES != ENEMY_COUNT
+#error "data/enemies and the battle art have different numbers of enemies"
+#endif
 
-/* The enemies, in the order of their battle art (number 0 is the boss),
- * from the original's data/enemies. The names are in capitals, as the
- * original showed them in fights. */
-static const Stats enemies[15] = {
-    { "ICHABOD CRANE", 10, 6, 10, 3, 60 },
-    { "SADWICH",        5, 1,  2, 7, 25 },
-    { "SQUASH BUG",     2, 1,  1, 2, 15 },
-    { "RED SLIME",      2, 1,  1, 2,  3 },
-    { "STACK ATTACK",   2, 1,  1, 2, 15 },
-    { "BLUE SLIME",     2, 1,  1, 1, 15 },
-    { "TENTACLES",      2, 1,  1, 2, 15 },
-    { "FANGED MELON",   2, 1,  1, 2, 15 },
-    { "WINTER MELON",   2, 1,  1, 2, 15 },
-    { "AGGRO CHAIRY",   2, 1,  1, 2, 15 },
-    { "RATTLER",        2, 1,  1, 2, 15 },
-    { "CRENSHAW",       2, 1,  1, 2, 15 },
-    { "CASABA",         2, 1,  1, 2, 15 },
-    { "KABOCHA",        2, 1,  1, 2, 15 },
-    { "CUBE",           2, 1,  1, 2, 15 },
-};
-
-/* The player: the Elephant, from the original's data/class. */
-static const Stats elephant = { "HERO", 6, 1, 2, 4, 20 };
-
-/* The two fighters in this fight: the stats are copied in, so hp can
- * change. Fighter 0 is the player, fighter 1 the enemy, so the other one
- * is always `f ^ 1`. */
+/* The two fighters in this fight, copied out of the data bank, so hp can
+ * change and the names can be read with any bank switched in. Fighter 0 is
+ * the player, fighter 1 the enemy, so the other one is always `f ^ 1`. */
 #define PLAYER 0
 #define ENEMY  1
 static Stats fighters[2];
 
-/* The player's HP, kept between fights. 0 = start afresh. */
+/* The player's HP, kept between fights (0 = start afresh), and the most
+ * it can be. */
 static unsigned char player_hp;
+static unsigned char max_hp;
 
 /* --- The menu ------------------------------------------------------------ */
 
@@ -195,7 +178,7 @@ static void draw_menu(void) {
     put_text("HP ");
     put_number(fighters[PLAYER].hp);
     *end++ = '/';
-    put_number(elephant.hp);
+    put_number(max_hp);
     while (end < strip + LOG_WIDTH) {
         *end++ = ' ';               /* clear what a longer HP left behind */
     }
@@ -282,12 +265,15 @@ static unsigned char turn(void) {
 void battle(unsigned char enemy) {
     unsigned char buttons, previous, pressed;
 
-    /* The fighters. */
-    fighters[PLAYER] = elephant;
+    /* The fighters: for now the player is always an Elephant, named HERO. */
+    mmc1_set_bank(DATA_BANK);
+    fighters[PLAYER] = classes[CLASS_ELEPHANT];
+    fighters[ENEMY] = enemies[enemy].stats;
+    strcpy(fighters[PLAYER].name, "HERO");
+    max_hp = fighters[PLAYER].hp;
     if (player_hp) {
         fighters[PLAYER].hp = player_hp;
     }
-    fighters[ENEMY] = enemies[enemy];
     end = message;
 
     /* Switch to the battle screen, with drawing off. */
