@@ -7,12 +7,13 @@
  *     Left and Right move the cursor, A picks.
  *
  * The fighting is ported from the original (Player.attack and
- * startAttackSequence in static/js/game.js), in whole numbers, with four of
+ * startAttackSequence in static/js/game.js), in whole numbers, with five of
  * its bugs fixed:
  *   - a hit could do 0 damage; now it's at least 1;
  *   - a fighter at exactly 0 HP kept fighting; now 0 is dead;
  *   - dying when the enemy struck first showed two death messages;
- *   - misses showed the name in normal case, hits in capitals.
+ *   - misses showed the name in normal case, hits in capitals;
+ *   - "A AGGRO CHAIRY draws near."; now "AN", and no article for the boss.
  *
  * The stats come from the original's data files, through tools/data.py.
  *
@@ -279,7 +280,17 @@ void battle(unsigned char enemy) {
     wait_frame();
     PPU_MASK = MASK_SHOW;
 
-    put_text("A ");
+    /* "A SADWICH", "AN AGGRO CHAIRY", and the boss by name alone. (The
+     * original always said "A".) */
+    if (enemy != BOSS) {
+        switch (fighters[ENEMY].name[0]) {
+        case 'A': case 'E': case 'I': case 'O': case 'U':
+            put_text("AN ");
+            break;
+        default:
+            put_text("A ");
+        }
+    }
     put_text(fighters[ENEMY].name);
     put_text(" draws near.");
     say();

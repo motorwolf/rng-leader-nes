@@ -9,6 +9,7 @@
 
 #include "art.h"
 #include "battle.h"
+#include "data.h"
 #include "game.h"
 #include "map.h"
 #include "mmc1.h"
@@ -37,11 +38,9 @@
  * the item's square, which will have the boss (both Milestone 6). */
 #define FIGHT_CHANCE 26
 
-/* The battle art is in the order of the original's enemy list. Number 0 is
- * the boss; random fights pick from the rest. (The original only picked
- * level 1 enemies, which left out the Squash Bug, the one level 10 enemy.
- * Levels never got used, so here it's back in.) */
-#define BOSS 0
+/* Random fights pick from every enemy but the boss (BOSS, data.h). (The
+ * original only picked level 1 enemies, which left out the Squash Bug, the
+ * one level 10 enemy. Levels never got used, so here it's back in.) */
 
 /* Where the camera goes, along one axis, for a player at p on the map. */
 static unsigned int camera_for(unsigned int p, unsigned int max) {
